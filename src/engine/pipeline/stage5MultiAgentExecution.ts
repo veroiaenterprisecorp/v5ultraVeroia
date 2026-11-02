@@ -22,7 +22,7 @@
 import { MatrixGrayscale2D } from '../matrixEngine';
 import { evaluasiMultiLID, MultiLIDResult } from '../multiLID';
 import { hitungEntropiMarkovSpasial, MarkovEntropyResult } from '../markovEntropy';
-import { clamp } from '../adaptivePenalization';
+import { clamp, hitungVariansLaplacianGlobal } from '../adaptivePenalization';
 import { eksekusiTahap3 } from './stage3PatchPartition';
 
 export type { MultiLIDResult, MarkovEntropyResult };
@@ -520,7 +520,7 @@ export function hitungFFTMultiPatch(
   if (!cellsToEvaluate && width >= 192 && height >= 108) {
     // Jika regionalGrid6x6 tidak diberikan langsung oleh pemanggil,
     // ambil proyeksi kanonikal Stage 3 untuk menjamin konsistensi 100% dengan pipeline utuh
-    cellsToEvaluate = eksekusiTahap3(M_Gray).regionalGrid6x6;
+    cellsToEvaluate = eksekusiTahap3(M_Gray, hitungVariansLaplacianGlobal(M_Gray)).regionalGrid6x6;
   }
 
   if (cellsToEvaluate && cellsToEvaluate.length > 0) {
