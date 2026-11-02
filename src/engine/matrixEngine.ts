@@ -163,9 +163,9 @@ export function hitungMatriksCitra(
 
   // =========================================================================
   // VEROIA v5-Ultra — TAHAP 5: CNN ANALYSIS & MULTI-AGENT CANONICAL EXECUTION
-  // Mengomputasi x_CNN, x_LBP, x_FFT, x_MultiLID, dan H_Markov secara sekuensial
+  // Mengomputasi x_CNN, x_LBP, x_FFT, x_MultiLID, dan H_Markov secara sekuensial (Hybrid FFT)
   // =========================================================================
-  const stage5Result = eksekusiTahap5(M_Gray);
+  const stage5Result = eksekusiTahap5(M_Gray, adaptiveBalancing.regionalGrid6x6);
   const multiLID = stage5Result.multiLID;
   const markovEntropy = stage5Result.markovEntropy;
 

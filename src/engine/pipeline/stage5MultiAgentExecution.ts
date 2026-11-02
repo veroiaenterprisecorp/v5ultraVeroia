@@ -23,6 +23,7 @@ import { MatrixGrayscale2D } from '../matrixEngine';
 import { evaluasiMultiLID, MultiLIDResult } from '../multiLID';
 import { hitungEntropiMarkovSpasial, MarkovEntropyResult } from '../markovEntropy';
 import { clamp } from '../adaptivePenalization';
+import { eksekusiTahap3 } from './stage3PatchPartition';
 
 export type { MultiLIDResult, MarkovEntropyResult };
 
@@ -167,13 +168,13 @@ export interface FFT2DResult {
  * Konfigurasi Windowing dan Multi-Patch FFT Stage 5
  */
 export interface FFTPatchCoord {
-  name: 'center' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+  name: 'center' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | string;
   x: number;
   y: number;
 }
 
 export interface FFTPatchDetail {
-  name: 'center' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+  name: 'center' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | string;
   x: number;
   y: number;
   highFreqRatio: number;
@@ -452,7 +453,18 @@ export function cooleyTukeyFFT2D(
  */
 export function hitungFFTMultiPatch(
   M_Gray: MatrixGrayscale2D,
-  aggregation: 'mean' | 'max' | 'center' | 'localized' = 'localized'
+  aggregation: 'mean' | 'max' | 'center' | 'localized' = 'localized',
+  regionalGrid6x6?: Array<{
+    row: number;
+    col: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    sigma2?: number;
+    anomalyIntensity?: number;
+    label?: string;
+  }>
 ): FFTMultiPatchResult {
   const { width, height, data } = M_Gray;
   if (width < 8 || height < 8) {
@@ -473,7 +485,7 @@ export function hitungFFTMultiPatch(
     N >>= 1;
   }
 
-  // 5 Calon Lokasi Spasial Sesuai Spesifikasi:
+  // 5 Calon Lokasi Spasial Tetap Sesuai Spesifikasi:
   // - Center
   // - Top-left
   // - Top-right
@@ -499,6 +511,53 @@ export function hitungFFTMultiPatch(
     if (!seenCoords.has(key)) {
       seenCoords.add(key);
       uniquePatches.push(c);
+    }
+  }
+
+  // MICRO REPAIR 05.24: Hybrid FFT — Maksimal 3 patch adaptif tambahan
+  // berdasarkan sel Stage 3 dengan varians tertinggi (sigma2 / anomalyIntensity)
+  let cellsToEvaluate = regionalGrid6x6;
+  if (!cellsToEvaluate && width >= 192 && height >= 108) {
+    // Jika regionalGrid6x6 tidak diberikan langsung oleh pemanggil,
+    // ambil proyeksi kanonikal Stage 3 untuk menjamin konsistensi 100% dengan pipeline utuh
+    cellsToEvaluate = eksekusiTahap3(M_Gray).regionalGrid6x6;
+  }
+
+  if (cellsToEvaluate && cellsToEvaluate.length > 0) {
+    // Filter dan urutkan sel dengan varians nyata (sigma2 > 1e-4) descending
+    const sortedCells = [...cellsToEvaluate]
+      .filter((cell) => (cell.sigma2 ?? cell.anomalyIntensity ?? 0) > 1e-4)
+      .sort((a, b) => {
+        const vA = a.sigma2 ?? a.anomalyIntensity ?? 0;
+        const vB = b.sigma2 ?? b.anomalyIntensity ?? 0;
+        return vB - vA;
+      });
+
+    const cellW = Math.floor(width / 6);
+    const cellH = Math.floor(height / 6);
+    let adaptiveCount = 0;
+
+    for (const cell of sortedCells) {
+      if (adaptiveCount >= 3 || uniquePatches.length >= 8) break;
+
+      const cellX = typeof cell.x === 'number' ? cell.x : cell.col * cellW;
+      const cellY = typeof cell.y === 'number' ? cell.y : cell.row * cellH;
+      const cW = typeof cell.width === 'number' ? cell.width : cellW;
+      const cH = typeof cell.height === 'number' ? cell.height : cellH;
+
+      const patchX = Math.max(0, Math.min(width - N, Math.floor(cellX + (cW - N) / 2)));
+      const patchY = Math.max(0, Math.min(height - N, Math.floor(cellY + (cH - N) / 2)));
+      const key = `${patchX},${patchY}`;
+
+      if (!seenCoords.has(key)) {
+        seenCoords.add(key);
+        uniquePatches.push({
+          name: `adaptive_${cell.label || `r${cell.row}c${cell.col}`}`,
+          x: patchX,
+          y: patchY,
+        });
+        adaptiveCount++;
+      }
     }
   }
 
@@ -603,23 +662,47 @@ export function hitungFFTMultiPatch(
 
 export function hitungAgenFFT(
   M_Gray: MatrixGrayscale2D,
-  aggregation: 'mean' | 'max' | 'center' | 'localized' = 'localized'
+  aggregation: 'mean' | 'max' | 'center' | 'localized' = 'localized',
+  regionalGrid6x6?: Array<{
+    row: number;
+    col: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    sigma2?: number;
+    anomalyIntensity?: number;
+    label?: string;
+  }>
 ): number {
-  return hitungFFTMultiPatch(M_Gray, aggregation).selectedScore;
+  return hitungFFTMultiPatch(M_Gray, aggregation, regionalGrid6x6).selectedScore;
 }
 
 /**
  * EKSEKUSI TAHAP 5:
  * Multi-Agent Batch Execution (Laplacian residual, LBP, FFT, MultiLID, Markov) & Pembersihan Memori
  */
-export function eksekusiTahap5(M_Gray: MatrixGrayscale2D): Stage5MultiAgentResult {
+export function eksekusiTahap5(
+  M_Gray: MatrixGrayscale2D,
+  regionalGrid6x6?: Array<{
+    row: number;
+    col: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    sigma2?: number;
+    anomalyIntensity?: number;
+    label?: string;
+  }>
+): Stage5MultiAgentResult {
   const startTime = performance.now();
 
   // 1. Eksekusi fitur residual Laplacian (legacy x_CNN) & agen tekstur LBP
   const { x_CNN, x_LBP } = hitungAgenTeksturDanCNN(M_Gray);
 
-  // 2. Eksekusi Agen Frekuensi FFT Multi-Patch dengan Hann Windowing & Preservasi Anomali Lokal
-  const fftAnalysis = hitungFFTMultiPatch(M_Gray, 'localized');
+  // 2. Eksekusi Agen Frekuensi FFT Multi-Patch dengan Hann Windowing & Preservasi Anomali Lokal (Hybrid FFT)
+  const fftAnalysis = hitungFFTMultiPatch(M_Gray, 'localized', regionalGrid6x6);
   const x_FFT = fftAnalysis.selectedScore;
 
   // 3. Eksekusi Topologi Manifold Laten: MultiLID Estimator (Bab VIII)
