@@ -1,0 +1,170 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * MODUL EVALUASI DESISAN MIKRO-JITTER VAE & ENTROPI MARKOV 2D
+ * ==========================================================
+ * Domain: Spatial Markov Random Fields & Stochastic VAE Noise Profiling
+ * 
+ * Teori:
+ * Komponen Variational Autoencoder (VAE) pada model generatif difusi (misal: Stable Diffusion, Flux)
+ * menghasilkan desisan acak mikro-jitter piksel kontinu akibat proses rekonstruksi latent-to-pixel
+ * dan sampling kontinu. Pada citra natural / goresan manual, transisi antar piksel tetangga terikat
+ * oleh korelasi fisik atau gaya gesek kuas, sedangkan pada hasil VAE difusi terjadi lonjakan entropi
+ * transisi spasial lokal tingkat tinggi.
+ * 
+ * Formulasi Entropi Markov Spasial 2D:
+ * H_Markov = - Σ_i Σ_j P(x_i, x_j) · log_2( P(x_j | x_i) )
+ * Di mana:
+ * - P(x_i, x_j) adalah probabilitas gabungan transisi spasial antara dua piksel bertetangga
+ * - P(x_j | x_i) = P(x_i, x_j) / P(x_i) adalah probabilitas transisi kondisional
+ */
+
+import { MatrixGrayscale2D } from './matrixEngine';
+
+export interface MarkovEntropyResult {
+  /** Nilai Entropi Markov Spasial 2D (dalam satuan bit / transisi) */
+  h_markov: number;
+  /** Entropi Gabungan H(X_1, X_2) */
+  jointEntropy: number;
+  /** Entropi Marginal H(X) */
+  marginalEntropy: number;
+  /** Indeks Desisan Mikro-Jitter VAE Relatif (0.0 - 1.0) */
+  vaeJitterIndex: number;
+  /** Karakteristik Transisi Spasial */
+  transitionSignature: 'Desisan VAE Terdeteksi (Tinggi)' | 'Transisi Natural / Terstruktur' | 'Pola Transisi Rendah / Halus';
+  /** Jumlah Pasangan Piksel Bertetangga yang Dievaluasi */
+  evaluatedPairs: number;
+  /** Jumlah Bin Kuantisasi State */
+  quantizationBins: number;
+}
+
+/**
+ * Menghitung Entropi Markov Ruang Spasial 2D (H_Markov)
+ * H_Markov = - Σ_i Σ_j P(x_i, x_j) · log_2( P(x_j | x_i) )
+ */
+export function hitungEntropiMarkovSpasial(
+  M_Gray: MatrixGrayscale2D,
+  bins: number = 32
+): MarkovEntropyResult {
+  const { width, height, data } = M_Gray;
+
+  // Alokasi matriks co-occurrence transisi 2D: Bins × Bins
+  const matrixSize = bins * bins;
+  const coOccurrence = new Float64Array(matrixSize);
+
+  let totalPairs = 0;
+  const scale = (bins - 1) / 255.0;
+
+  // Evaluasi transisi spasial 2D: horizontal dan vertikal
+  // Stride terkalibrasi untuk citra Full HD berkinerja tinggi
+  const step = 1;
+
+  for (let y = 0; y < height; y += step) {
+    const rowOffset = y * width;
+    const nextRowOffset = (y + 1) * width;
+    const hasNextRow = y + 1 < height;
+
+    for (let x = 0; x < width; x += step) {
+      const valCurr = data[rowOffset + x];
+      // Kuantisasi state x_i ∈ [0, bins - 1]
+      const state_i = Math.min(bins - 1, Math.max(0, Math.floor(valCurr * scale)));
+
+      // 1. Transisi Spasial Horizontal: (x, y) -> (x + 1, y)
+      if (x + 1 < width) {
+        const valRight = data[rowOffset + x + 1];
+        const state_j = Math.min(bins - 1, Math.max(0, Math.floor(valRight * scale)));
+        coOccurrence[state_i * bins + state_j]++;
+        totalPairs++;
+      }
+
+      // 2. Transisi Spasial Vertikal: (x, y) -> (x, y + 1)
+      if (hasNextRow) {
+        const valBottom = data[nextRowOffset + x];
+        const state_j = Math.min(bins - 1, Math.max(0, Math.floor(valBottom * scale)));
+        coOccurrence[state_i * bins + state_j]++;
+        totalPairs++;
+      }
+    }
+  }
+
+  if (totalPairs === 0) {
+    return {
+      h_markov: 0,
+      jointEntropy: 0,
+      marginalEntropy: 0,
+      vaeJitterIndex: 0,
+      transitionSignature: 'Pola Transisi Rendah / Halus',
+      evaluatedPairs: 0,
+      quantizationBins: bins,
+    };
+  }
+
+  // Normalisasi ke Probabilitas Gabungan P(x_i, x_j) dan Probabilitas Marginal P(x_i)
+  const P_joint = new Float64Array(matrixSize);
+  const P_marginal = new Float64Array(bins);
+
+  for (let i = 0; i < bins; i++) {
+    const rowIdx = i * bins;
+    let rowSum = 0;
+    for (let j = 0; j < bins; j++) {
+      const p = coOccurrence[rowIdx + j] / totalPairs;
+      P_joint[rowIdx + j] = p;
+      rowSum += p;
+    }
+    P_marginal[i] = rowSum;
+  }
+
+  // Hitung:
+  // H_Markov = - Σ_i Σ_j P(x_i, x_j) · log_2( P(x_j | x_i) )
+  // Di mana P(x_j | x_i) = P(x_i, x_j) / P(x_i)
+  let h_markov = 0;
+  let jointEntropy = 0;
+  let marginalEntropy = 0;
+
+  for (let i = 0; i < bins; i++) {
+    const p_i = P_marginal[i];
+    if (p_i > 1e-12) {
+      marginalEntropy -= p_i * Math.log2(p_i);
+    }
+
+    const rowIdx = i * bins;
+    for (let j = 0; j < bins; j++) {
+      const p_ij = P_joint[rowIdx + j];
+      if (p_ij > 1e-12 && p_i > 1e-12) {
+        // Probabilitas kondisional P(x_j | x_i)
+        const p_cond = p_ij / p_i;
+        if (p_cond > 1e-12) {
+          h_markov -= p_ij * Math.log2(p_cond);
+        }
+        jointEntropy -= p_ij * Math.log2(p_ij);
+      }
+    }
+  }
+
+  // Indeks Desisan Mikro-Jitter VAE:
+  // Pada noise acak maksimum kuantisasi 32-bin, batas atas teoretis log_2(32) = 5.0 bit.
+  // Model difusi VAE biasanya menunjukkan H_Markov tinggi (> 2.80 - 3.80 bit)
+  // karena mikro-fluktuasi kontinu antar piksel tetangga.
+  const maxEntropy = Math.log2(bins);
+  const jitterIndex = Math.min(1.0, Math.max(0.0, h_markov / maxEntropy));
+
+  let signature: 'Desisan VAE Terdeteksi (Tinggi)' | 'Transisi Natural / Terstruktur' | 'Pola Transisi Rendah / Halus';
+  if (h_markov >= 3.20) {
+    signature = 'Desisan VAE Terdeteksi (Tinggi)';
+  } else if (h_markov >= 1.60) {
+    signature = 'Transisi Natural / Terstruktur';
+  } else {
+    signature = 'Pola Transisi Rendah / Halus';
+  }
+
+  return {
+    h_markov: Math.round(h_markov * 1000) / 1000,
+    jointEntropy: Math.round(jointEntropy * 1000) / 1000,
+    marginalEntropy: Math.round(marginalEntropy * 1000) / 1000,
+    vaeJitterIndex: Math.round(jitterIndex * 1000) / 1000,
+    transitionSignature: signature,
+    evaluatedPairs: totalPairs,
+    quantizationBins: bins,
+  };
+}

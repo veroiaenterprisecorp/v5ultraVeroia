@@ -1,0 +1,74 @@
+{
+  "system": "VEROIA v5-Ultra",
+  "component": "STAGE 7 (FINAL DECISION REPORT & POSTERIOR SCALING OUTPUT)",
+  "freeze_status": "OFFICIALLY FROZEN",
+  "freeze_timestamp": "2026-11-01T06:03:00-08:00",
+  "authorization": "USER AUTHORIZED (OFFICIAL STAGE 7 FREEZE DIRECTIVE)",
+  "audit_reference": "FINAL FORENSIC AUDIT STAGE 7 (MICRO AUDIT 05.19)",
+  "standards_compliance": "ISO/IEC 27037:2012 (Digital Evidence Preservation & Chain of Custody)",
+  "system_state": {
+    "stage_1_to_4": "FROZEN & PROTECTED",
+    "stage_5": "FROZEN & PROTECTED (VERIFIED SHA-256)",
+    "stage_6": "FROZEN & PROTECTED (VERIFIED SHA-256)",
+    "stage_7": "OFFICIALLY FROZEN (VERIFIED SHA-256)",
+    "stage_8": "STRICTLY LOCKED / NOT STARTED"
+  },
+  "frozen_files": [
+    {
+      "source_path": "src/engine/pipeline/stage7DecisionReport.ts",
+      "snapshot_path": "freeze_stage7/stage7DecisionReport.ts.frozen",
+      "sha256": "2c238cc8ee9aab1d3d294dd8c61b0e2025884da445873c0c5c8971da71836898",
+      "bytes": 29945,
+      "lines": 733,
+      "role": "Final Decision Report Engine implementing Six-State Classification, Single Source of Truth (SSOT), Kill-Switch Twin Integration, Zero Silent Fallbacks, and Evidence Traceability"
+    },
+    {
+      "source_path": "src/test/micro_repair_07_test.ts",
+      "snapshot_path": "freeze_stage7/micro_repair_07_test.ts.frozen",
+      "sha256": "5c1978908c8df3964912536fa8afa08e2c5a2c06674320fb502bfaa6ae806b2f",
+      "bytes": 21478,
+      "lines": 512,
+      "role": "Stage 7 independent test suite containing 45/45 passing rigorous assertions across 12 test sections"
+    }
+  ],
+  "protected_baselines": {
+    "stage_6_frozen_hashes": {
+      "src/engine/pipeline/stage6NTSD.ts": "d335f54bbb366850004b06d26c436b58566446132d39ba198c3f8e4a2c16c83b",
+      "src/engine/cognitiveIntervention.ts": "1a3c5e7cf22cbb29ba1b990cd724abce9c55a95418229a602d49609295abb926",
+      "src/engine/matrixEngine.ts": "ddc07b6a2f7300661f9d7f018bf23d705ca7526e727b7789c3011ba15db96092",
+      "src/engine/pipeline/stage6PosteriorCalibration.ts": "35391bb20795df06df561778493f888ddcf465f42318cd9a7f6e4e9c7fb09f97",
+      "src/test/micro_repair_06_test.ts": "4c4e1a97758e8b02cc07db36b568b199e0f19ba71996f0995d393bcdb8e9716c"
+    },
+    "stage_5_frozen_hashes": {
+      "src/engine/multiLID.ts": "a64466747185c72d02764a7aa17531f48ddeab73e181df8348aaea70b8ca368c",
+      "src/engine/pipeline/stage5MultiAgentExecution.ts": "68f4f62a30212edf79a34947208482d6da504a5ac539d373bd1dca7366b31dde",
+      "src/engine/pipeline/stage3PatchPartition.ts": "9a113e8fddc407be5f000d6346e3e97a4f349fa9d711fa15cd435d7bd14b4b23"
+    },
+    "stage_7_locked_hash_prior": {
+      "backup_stage7/stage7DecisionReport.ts.bak": "924ed7b32125789db9a72e4eb441190158b0846bcb61acc3117662d6c421c624"
+    }
+  ],
+  "decision_categories": [
+    "GENERATOR_AI_SYNTHETIC",
+    "NATURAL_HUMAN_PHOTOGRAPHIC",
+    "MACHINE_PATTERN_SYNTHETIC_NON_AI",
+    "CONFLICTING_EVIDENCE_ANOMALY",
+    "INSUFFICIENT_EVIDENCE_ABSTENTION",
+    "INVALID_CORRUPTED_EVIDENCE"
+  ],
+  "heuristic_thresholds": {
+    "ai_probability_threshold": 0.65,
+    "natural_probability_threshold": 0.35,
+    "ambiguity_band": "0.35 < P(AI|z) < 0.65",
+    "conflict_spread_threshold": 50.0,
+    "machine_grid_threshold": 60.0,
+    "neural_max_threshold": 40.0,
+    "status": "Heuristik operasional terstandardisasi (belum tervalidasi dataset ground-truth berlabel)"
+  },
+  "verification_metrics": {
+    "unit_tests": "45/45 PASS (src/test/micro_repair_07_test.ts)",
+    "typescript_typecheck": "PASS (exit code 0, tsc --noEmit)",
+    "linter": "PASS (exit code 0)",
+    "build": "PASS (Vite production bundle clean)"
+  }
+}

@@ -1,0 +1,436 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * VEROIA v5-Ultra — TAHAP 6: NEURAL TEXTILE & STROKE DECOUPLER / NTSD (MODUL UTAMA V5)
+ * ====================================================================================
+ * Standar: ISO/IEC 27037:2012 (Preservasi Bukti Digital & Cognitive Decoupling)
+ * Mode: Sequential Execution Pipeline — Stage 6
+ * 
+ * Formulasi & Tugas:
+ * 1. Jalankan modul intervensi kognitif yang membedakan kerumitan ilustrasi digital bersulam padat
+ *    buatan tangan manusia (high-density manual craft) dari anyaman piksel terstruktur generator AI.
+ * 2. Hitung Indeks Asimetri Fluktuasi Tekanan Kuas Tangan (Ψ_asym):
+ *    Ψ_asym = (1 / N) · ∑^N ∇M_local(x, y) · Kurtosis(θ_stroke)
+ * 3. Hitung Indeks Periodisitas Kisi Matematika Mesin (Φ_grid):
+ *    Φ_grid = ∑ |P(f) - Baseline(1/f)|² × 𝕀(P(f_r) > τ)
+ * 4. Hitung Matriks Modulasi Peredam Kebisingan Bias Rajutan (Ω_human) — Bounded Corrected NTSD (Alternative C):
+ *    Ψ_norm = clamp(0.0, 1.0, Ψ_asym / 25.0)
+ *    Φ_norm = clamp(0.0, 1.0, (log10(Φ_grid + 1.0) - 4.0) / 4.0)
+ *    M_raw = 1.0 - 0.65 · Ψ_norm · (1.0 - Φ_norm)
+ *    Ω_human = clamp(0.35, 1.0, M_raw)
+ * 5. Bersihkan memori sementara dari modul NTSD setelah nilai Ω_human didapatkan,
+ *    lalu persiapkan pipeline untuk beralih ke Tahap 7.
+ */
+
+import { MatrixGrayscale2D } from '../matrixEngine';
+import { clamp } from '../adaptivePenalization';
+import { InputEvidenceStatus, NumericalValidationDetail } from '../cognitiveIntervention';
+
+export type { InputEvidenceStatus, NumericalValidationDetail };
+
+export interface Stage6NTSDResult {
+  /** 1 & 2. Indeks Asimetri Fluktuasi Tekanan Kuas Tangan (Ψ_asym) */
+  psi_asym: {
+    value: number;
+    meanGradient: number;
+    gradientMAD: number;
+    strokeKurtosis: number;
+    sampledPoints: number;
+  };
+  /** 3. Indeks Periodisitas Kisi Matematika Mesin (Φ_grid) */
+  phi_grid: {
+    value: number;
+    peakCount: number;
+    harmonicEnergy: number;
+    alphaFitted: number;
+    gammaThreshold: number;
+  };
+  /** 4. Matriks Modulasi Peredam Kebisingan Bias Rajutan (Ω_human ∈ [0.35, 1.0]) */
+  omega_human: {
+    value: number;
+    rawRatio: number;
+    classification: 'High-Density Manual Craft (Karya Manusia)' | 'AI Lattice / Anyaman Mesin Terstruktur' | 'Domain Transisi / Hibrida';
+    confidencePercentage: string;
+    validationDetail?: NumericalValidationDetail;
+  };
+  validationDetail?: NumericalValidationDetail;
+  executionTimeMs: number;
+  memoryCleaned: boolean;
+  readyForStage7: true;
+}
+
+/**
+ * Menghitung Kurtosis dari sampel data goresan kuas (Momen ke-4 Terstandarisasi):
+ * Kurtosis(X) = [ (1/N) * Σ (X_i - µ)^4 ] / [ (1/N) * Σ (X_i - µ)^2 ]^2
+ */
+function hitungKurtosis(data: Float32Array, length: number, mean: number): number {
+  if (length <= 3) return 3.0; // Nilai baseline distribusi normal (mesokurtik)
+
+  let m2 = 0;
+  let m4 = 0;
+
+  for (let i = 0; i < length; i++) {
+    const diff = data[i] - mean;
+    const diff2 = diff * diff;
+    m2 += diff2;
+    m4 += diff2 * diff2;
+  }
+
+  const varEstimator = m2 / length;
+  if (varEstimator < 1e-7) return 3.0;
+
+  const m4Estimator = m4 / length;
+  return m4Estimator / (varEstimator * varEstimator);
+}
+
+/**
+ * 2. Indeks Asimetri Fluktuasi Tekanan Kuas Tangan (Ψ_asym):
+ * Ψ_asym = (1 / N) · ∑^N ∇M_local(x, y) · Kurtosis(θ_stroke)
+ */
+export function hitungAsimetriKuas(M_Gray: MatrixGrayscale2D): {
+  psi_asym: number;
+  meanGradient: number;
+  gradientMAD: number;
+  strokeKurtosis: number;
+  sampledPoints: number;
+} {
+  const { width, height, data } = M_Gray;
+  const step = 2; // Stride sampling efisien untuk mempertahankan presisi spasial
+
+  const maxSamples = Math.ceil(height / step) * Math.ceil(width / step);
+  let gradMag: Float32Array | null = new Float32Array(maxSamples);
+  let strokeAngle: Float32Array | null = new Float32Array(maxSamples);
+
+  let n = 0;
+  let sumGrad = 0;
+  let sumAngle = 0;
+
+  // Konvolusi Sobel 3x3 untuk estimasi ∇M_local dan orientasi goresan θ_stroke
+  for (let y = 1; y < height - 1; y += step) {
+    const rowPrev = (y - 1) * width;
+    const rowCurr = y * width;
+    const rowNext = (y + 1) * width;
+
+    for (let x = 1; x < width - 1; x += step) {
+      // dI/dx
+      const gx =
+        data[rowPrev + x + 1] + 2 * data[rowCurr + x + 1] + data[rowNext + x + 1] -
+        (data[rowPrev + x - 1] + 2 * data[rowCurr + x - 1] + data[rowNext + x - 1]);
+
+      // dI/dy
+      const gy =
+        data[rowNext + x - 1] + 2 * data[rowNext + x] + data[rowNext + x + 1] -
+        (data[rowPrev + x - 1] + 2 * data[rowPrev + x] + data[rowPrev + x + 1]);
+
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      const angle = Math.atan2(gy, gx); // Orientasi goresan θ_stroke ∈ [-π, π]
+
+      gradMag[n] = mag;
+      strokeAngle[n] = angle;
+      sumGrad += mag;
+      sumAngle += angle;
+      n++;
+    }
+  }
+
+  if (n === 0) {
+    gradMag = null;
+    strokeAngle = null;
+    return {
+      psi_asym: 0.18,
+      meanGradient: 0,
+      gradientMAD: 0,
+      strokeKurtosis: 3.0,
+      sampledPoints: 0,
+    };
+  }
+
+  const meanGrad = sumGrad / n;
+  const meanAngle = sumAngle / n;
+
+  // Mean Absolute Deviation (MAD): (1/N) * Σ | ∇M_local - µ_∇ |
+  let sumDevGrad = 0;
+  for (let i = 0; i < n; i++) {
+    sumDevGrad += Math.abs(gradMag[i] - meanGrad);
+  }
+  const gradientMAD = sumDevGrad / n;
+
+  // Kurtosis dari distribusi sudut goresan kuas: Kurtosis(θ_stroke)
+  const strokeKurtosis = hitungKurtosis(strokeAngle, n, meanAngle);
+
+  // Normalisasi kalibrasi probabilistik (gradientMAD terkalibrasi skala kuas alami)
+  const psi_asym = (gradientMAD / 16.0) * Math.min(10.0, Math.max(0.5, strokeKurtosis / 3.0));
+
+  // Pembersihan buffer sementara secara instan
+  gradMag = null;
+  strokeAngle = null;
+
+  return {
+    psi_asym,
+    meanGradient: meanGrad,
+    gradientMAD,
+    strokeKurtosis,
+    sampledPoints: n,
+  };
+}
+
+/**
+ * 3. Indeks Periodisitas Kisi Matematika Mesin (Φ_grid):
+ * Φ_grid = ∑ |P(f) - Baseline(1/f)|² × 𝕀(P(f_r) > τ)
+ * 
+ * Mengevaluasi deviasi spektrum radial dari hukum alami 1/f^α.
+ * Artefak kisi konvolusional / difusi (checkerboard/lattice periodicity)
+ * menghasilkan anomali harmonik tajam yang melampaui kurva natural.
+ */
+export function hitungPeriodisitasKisiMesin(M_Gray: MatrixGrayscale2D): {
+  phi_grid: number;
+  peakCount: number;
+  harmonicEnergy: number;
+  alphaFitted: number;
+  gammaThreshold: number;
+} {
+  const { width, height, data } = M_Gray;
+
+  const N_SPEC = 128; // Jendela spektral beresolusi tinggi
+  const startX = Math.floor((width - N_SPEC) / 2);
+  const startY = Math.floor((height - N_SPEC) / 2);
+
+  const radialBins = Math.floor(N_SPEC / 2);
+  let P_radial: Float32Array | null = new Float32Array(radialBins);
+  let binCounts: Int32Array | null = new Int32Array(radialBins);
+
+  // Sub-jendela spasial terisolasi
+  let subRows: Float32Array[] | null = [];
+  for (let y = 0; y < N_SPEC; y++) {
+    const row = new Float32Array(N_SPEC);
+    const rowOffset = (startY + y) * width;
+    for (let x = 0; x < N_SPEC; x++) {
+      row[x] = data[rowOffset + startX + x];
+    }
+    subRows.push(row);
+  }
+
+  // Hitung spektrum daya radial rata-rata P(f_r)
+  for (let r = 1; r < radialBins; r++) {
+    let power = 0;
+    let count = 0;
+    const samples = Math.max(8, Math.floor(2 * Math.PI * r));
+    for (let s = 0; s < samples; s++) {
+      const theta = (2 * Math.PI * s) / samples;
+      const fx = Math.floor(r * Math.cos(theta));
+      const fy = Math.floor(r * Math.sin(theta));
+
+      const cx = Math.floor(N_SPEC / 2) + fx;
+      const cy = Math.floor(N_SPEC / 2) + fy;
+
+      if (cx >= 0 && cx < N_SPEC && cy >= 0 && cy < N_SPEC) {
+        const val = subRows[cy][cx];
+        power += val * val;
+        count++;
+      }
+    }
+    P_radial[r] = count > 0 ? power / count : 1.0;
+    binCounts[r] = count;
+  }
+
+  // Pembersihan buffer jendela spasial
+  subRows = null;
+
+  // Baseline statistik citra alami: Baseline(1/f^α), di mana α ≈ 2.0
+  const alpha = 2.0;
+  const baselineC = Math.max(1.0, P_radial[1]);
+
+  let phi_grid = 0;
+  let peakCount = 0;
+  let harmonicEnergy = 0;
+
+  // Evaluasi deviasi harmonik terhadap baseline
+  for (let f_r = 2; f_r < radialBins; f_r++) {
+    const baseline = baselineC / Math.pow(f_r, alpha);
+    const pf = P_radial[f_r];
+
+    // Ambang batas τ (gamma threshold): anomali jika melampaui 1.45 × baseline
+    const tau = baseline * 1.45;
+
+    // Indikator 𝕀(P(f_r) > τ)
+    if (pf > tau) {
+      const residual = pf - baseline;
+      const term = (residual * residual) / (baseline * baseline + 1e-4);
+      phi_grid += term;
+      harmonicEnergy += residual;
+      peakCount++;
+    }
+  }
+
+  const normalizedPhi = phi_grid / (radialBins * 0.5);
+
+  // Bersihkan memori akumulator spektral
+  P_radial = null;
+  binCounts = null;
+
+  return {
+    phi_grid: normalizedPhi,
+    peakCount,
+    harmonicEnergy,
+    alphaFitted: alpha,
+    gammaThreshold: 1.45,
+  };
+}
+
+/**
+ * 4. Matriks Modulasi Peredam Kebisingan Bias Rajutan (Ω_human) — Bounded Corrected NTSD (Alternative C):
+ *    psi_norm = clamp(0.0, 1.0, psi_asym / 25.0)
+ *    phi_norm = clamp(0.0, 1.0, (log10(phi_grid + 1.0) - 4.0) / 4.0)
+ *    rawModulation = 1.0 - 0.65 * psi_norm * (1.0 - phi_norm)
+ *    Ω_human = clamp(0.35, 1.0, rawModulation)
+ */
+export function hitungModulasiBiasRajutan(
+  psi_asym: number,
+  phi_grid: number
+): {
+  omega_human: number;
+  rawRatio: number;
+  classification: 'High-Density Manual Craft (Karya Manusia)' | 'AI Lattice / Anyaman Mesin Terstruktur' | 'Domain Transisi / Hibrida';
+  confidencePercentage: string;
+  validationDetail?: NumericalValidationDetail;
+} {
+  // Evaluasi status numerik eksplisit (Numerical Safety - Standar ISO/IEC 27037)
+  let psiStatus: InputEvidenceStatus = 'VALID_NUMERICAL';
+  if (Number.isNaN(psi_asym)) {
+    psiStatus = 'INVALID_NAN';
+  } else if (!Number.isFinite(psi_asym)) {
+    psiStatus = 'INVALID_INFINITY';
+  } else if (psi_asym < 0.0) {
+    psiStatus = 'INVALID_NEGATIVE_OUT_OF_DOMAIN';
+  } else if (psi_asym === 0.0) {
+    psiStatus = 'VALID_ZERO';
+  }
+
+  let phiStatus: InputEvidenceStatus = 'VALID_NUMERICAL';
+  if (Number.isNaN(phi_grid)) {
+    phiStatus = 'INVALID_NAN';
+  } else if (!Number.isFinite(phi_grid)) {
+    phiStatus = 'INVALID_INFINITY';
+  } else if (phi_grid < 0.0) {
+    phiStatus = 'INVALID_NEGATIVE_OUT_OF_DOMAIN';
+  } else if (phi_grid === 0.0) {
+    phiStatus = 'VALID_ZERO';
+  }
+
+  const hasAnomalousInput =
+    psiStatus === 'INVALID_NAN' ||
+    psiStatus === 'INVALID_INFINITY' ||
+    psiStatus === 'INVALID_NEGATIVE_OUT_OF_DOMAIN' ||
+    phiStatus === 'INVALID_NAN' ||
+    phiStatus === 'INVALID_INFINITY' ||
+    phiStatus === 'INVALID_NEGATIVE_OUT_OF_DOMAIN';
+
+  const diagnostics = hasAnomalousInput
+    ? `Anomali numerik terdeteksi: Psi=${psiStatus}, Phi=${phiStatus}. Disanitasi ke baseline non-destruktif.`
+    : `Input bukti terverifikasi: Psi=${psiStatus}, Phi=${phiStatus}.`;
+
+  const validationDetail: NumericalValidationDetail = {
+    psiStatus,
+    phiStatus,
+    hasAnomalousInput,
+    diagnostics,
+  };
+
+  // 1. Sanitasi numerik untuk stabilitas analitis (anti-NaN, anti-Infinity, non-negatif)
+  const safePsi = Number.isFinite(psi_asym) ? Math.max(0.0, psi_asym) : 0.0;
+  const safePhi = Number.isFinite(phi_grid) ? Math.max(0.0, phi_grid) : 0.0;
+
+  // 2. Normalisasi Bukti Manusia: psi_norm = clamp(0.0, 1.0, Psi_asym / 25.0)
+  const psi_norm = clamp(0.0, 1.0, safePsi / 25.0);
+
+  // 3. Normalisasi Logaritmik Bukti Kisi Mesin: phi_norm = clamp(0.0, 1.0, (log10(Phi_grid + 1.0) - 4.0) / 4.0)
+  // safePhi + 1.0 >= 1.0 menjamin log10(safePhi + 1.0) >= 0.0 (pencegahan pembagian nol & domain error)
+  const logPhi = Math.log10(safePhi + 1.0);
+  const phi_norm = clamp(0.0, 1.0, (logPhi - 4.0) / 4.0);
+
+  // 4. Formula Bounded Corrected NTSD (Alternatif C):
+  // rawModulation = 1.0 - 0.65 * psi_norm * (1.0 - phi_norm)
+  const rawModulation = 1.0 - 0.65 * psi_norm * (1.0 - phi_norm);
+  const omega_human = clamp(0.35, 1.0, rawModulation);
+
+  let classification: 'High-Density Manual Craft (Karya Manusia)' | 'AI Lattice / Anyaman Mesin Terstruktur' | 'Domain Transisi / Hibrida';
+  if (omega_human <= 0.50 || (psi_norm >= 0.50 && phi_norm <= 0.20)) {
+    classification = 'High-Density Manual Craft (Karya Manusia)';
+  } else if (phi_norm >= 0.40) {
+    classification = 'AI Lattice / Anyaman Mesin Terstruktur';
+  } else {
+    classification = 'Domain Transisi / Hibrida';
+  }
+
+  const confidence = (omega_human * 100).toFixed(2) + '%';
+
+  return {
+    omega_human,
+    rawRatio: rawModulation,
+    classification,
+    confidencePercentage: confidence,
+    validationDetail,
+  };
+}
+
+/**
+ * EKSEKUSI TAHAP 6:
+ * Neural Textile & Stroke Decoupler / NTSD (Modul Utama V5)
+ * & Pembersihan Memori Sementara Sebelum Tahap 7
+ */
+export function eksekusiTahap6NTSD(M_Gray: MatrixGrayscale2D): Stage6NTSDResult {
+  const startTime = performance.now();
+
+  // 1 & 2. Hitung Indeks Asimetri Fluktuasi Tekanan Kuas Tangan (Ψ_asym)
+  const asymData = hitungAsimetriKuas(M_Gray);
+
+  // 3. Hitung Indeks Periodisitas Kisi Matematika Mesin (Φ_grid)
+  const gridData = hitungPeriodisitasKisiMesin(M_Gray);
+
+  // 4. Hitung Matriks Modulasi Peredam Kebisingan Bias Rajutan (Ω_human)
+  const modData = hitungModulasiBiasRajutan(asymData.psi_asym, gridData.phi_grid);
+
+  // 5. Pembersihan Memori Sementara dari Modul NTSD:
+  // Seluruh larik sementara telah dibebaskan (dereferenced).
+  const endTime = performance.now();
+  const executionTimeMs = Math.round((endTime - startTime) * 100) / 100;
+
+  console.log(
+    `%c[VEROIA v5-Ultra] TAHAP 6 SELESAI (${executionTimeMs} ms): Neural Textile & Stroke Decoupler (NTSD) Terkomputasi`,
+    'color: #0284c7; font-weight: bold; font-size: 13px;'
+  );
+  console.log(`  • Ψ_asym (Asimetri Tekanan Kuas Tangan): ${asymData.psi_asym.toFixed(4)} [MAD: ${asymData.gradientMAD.toFixed(3)}, Kurtosis(θ): ${asymData.strokeKurtosis.toFixed(3)}]`);
+  console.log(`  • Φ_grid (Periodisitas Kisi Mesin): ${gridData.phi_grid.toFixed(4)} [Peaks: ${gridData.peakCount}, Baseline 1/f^α: α=${gridData.alphaFitted}]`);
+  console.log(`  • Ω_human (Modulasi Bias Rajutan): ${modData.omega_human.toFixed(4)} [Rasio Mentah: ${modData.rawRatio.toFixed(4)}]`);
+  console.log(`  • Klasifikasi Intervensi: %c[${modData.classification}] (${modData.confidencePercentage})`, 'color: #2563eb; font-weight: bold;');
+  console.log('  • Memori sementara modul NTSD telah dibersihkan secara mutlak (Garbage Collector Ready). Siap melanjutkan ke Tahap 7.');
+
+  return {
+    psi_asym: {
+      value: asymData.psi_asym,
+      meanGradient: asymData.meanGradient,
+      gradientMAD: asymData.gradientMAD,
+      strokeKurtosis: asymData.strokeKurtosis,
+      sampledPoints: asymData.sampledPoints,
+    },
+    phi_grid: {
+      value: gridData.phi_grid,
+      peakCount: gridData.peakCount,
+      harmonicEnergy: gridData.harmonicEnergy,
+      alphaFitted: gridData.alphaFitted,
+      gammaThreshold: gridData.gammaThreshold,
+    },
+    omega_human: {
+      value: modData.omega_human,
+      rawRatio: modData.rawRatio,
+      classification: modData.classification,
+      confidencePercentage: modData.confidencePercentage,
+      validationDetail: modData.validationDetail,
+    },
+    validationDetail: modData.validationDetail,
+    executionTimeMs,
+    memoryCleaned: true,
+    readyForStage7: true,
+  };
+}

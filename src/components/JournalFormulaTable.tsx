@@ -1,0 +1,1199 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * TABEL JURNAL FORENSIK KOMPUTASI & HASIL FORMULA MATEMATIKA
+ * ==========================================================
+ * Format tabel teknis; bukan publikasi atau sertifikasi yang telah ditinjau sejawat.
+ * Menampilkan seluruh formula, notasi teoritis, variabel, nilai hasil terhitung,
+ * satuan/skala, dan catatan interpretatif indikatif.
+ * 
+ * FITUR SALIN SEMUA (COPY ALL):
+ * - Salin Semua (Format Markdown Lengkap)
+ * - Salin Semua (Format Excel / CSV Spreadsheet)
+ * - Salin Semua (Format LaTeX Tabular Jurnal)
+ * - Salin Semua (Format JSON Terstruktur)
+ * - Salin Semua (Format Laporan Teks)
+ * - Salin Per-Baris dan Per-Formula (1-Click Copy)
+ */
+
+import React, { useState, useMemo } from 'react';
+import {
+  Copy,
+  Check,
+  FileSpreadsheet,
+  FileCode,
+  FileText,
+  Search,
+  Filter,
+  Download,
+  BookOpen,
+  Share2,
+  ExternalLink,
+  ChevronDown,
+  Sparkles,
+  Info,
+  CheckCheck,
+  Code2
+} from 'lucide-react';
+import { MathematicalEngineResult } from '../engine/matrixEngine';
+
+export interface JournalRowItem {
+  id: string;
+  category: string;
+  stage: string;
+  name: string;
+  symbol: string;
+  formula: string;
+  formulaLatex: string;
+  value: string;
+  numericVal?: number;
+  unit: string;
+  domain: string;
+  status: string;
+  statusType: 'success' | 'danger' | 'warning' | 'info' | 'neutral';
+  notes: string;
+}
+
+export interface JournalFormulaTableProps {
+  result?: MathematicalEngineResult | null;
+  fileName?: string;
+  fileSize?: number;
+  previewMode?: boolean;
+  onClose?: () => void;
+}
+
+/**
+ * Membangun daftar lengkap seluruh baris formula dan hasil komputasi
+ */
+export function buildJournalRows(result?: MathematicalEngineResult | null): JournalRowItem[] {
+  const isReady = !!result;
+  const {
+    killSwitchTwin,
+    posteriorCalibration,
+    adaptiveBalancing,
+    cognitiveIntervention,
+    multiLID,
+    markovEntropy,
+    metadata,
+  } = result || ({} as Partial<MathematicalEngineResult>);
+
+  return [
+    // -------------------------------------------------------------
+    // TAHAP 1: VALIDASI SPASIAL, INTEGRITAS BINER & KILL-SWITCH
+    // -------------------------------------------------------------
+    {
+      id: 'g_mutlak',
+      stage: 'Tahap 1',
+      category: 'Gerbang & Kill-Switch',
+      name: 'Gerbang Mutlak Sistem (Kill-Switch Gate)',
+      symbol: 'G',
+      formula: 'G = g_layer · g_rasio · g_gerak',
+      formulaLatex: 'G = g_{\\text{layer}} \\cdot g_{\\text{rasio}} \\cdot g_{\\text{gerak}}',
+      value: isReady ? `${killSwitchTwin?.gates.G ?? 0}` : 'Belum Dievaluasi',
+      numericVal: isReady ? killSwitchTwin?.gates.G : undefined,
+      unit: 'Biner Boolean',
+      domain: '{0, 1}',
+      status: isReady
+        ? killSwitchTwin?.gates.G === 1
+          ? 'Lolos pemeriksaan gerbang internal (G = 1)'
+          : 'G = 0 (Auto-Reject Aktif: Proses Dihentikan)'
+        : 'Belum Dievaluasi (Menunggu Input)',
+      statusType: isReady && killSwitchTwin?.gates.G === 1 ? 'success' : isReady ? 'danger' : 'neutral',
+      notes: isReady
+        ? `g_layer=${killSwitchTwin?.gates.g_layer}, g_rasio=${killSwitchTwin?.gates.g_rasio}, g_gerak=${killSwitchTwin?.gates.g_gerak}`
+        : 'Gerbang mutlak menentukan integritas biner, resolusi, dan dinamika fluks citra',
+    },
+    {
+      id: 'g_layer',
+      stage: 'Tahap 1',
+      category: 'Gerbang & Kill-Switch',
+      name: 'Gerbang Integritas Biner & Format (Magic Number)',
+      symbol: 'g_layer',
+      formula: 'g_layer = 1_{(Signature(File) ∈ {PNG, JPEG, WEBP, TIFF, BMP, GIF} ∧ FormatConsistent ∧ DecodeSuccess)}',
+      formulaLatex: 'g_{\\text{layer}} = \\mathbb{I}_{(\\text{Sig} \\in \\mathcal{M}_{\\text{valid}} \\,\\land\\, \\text{Consistent} \\,\\land\\, \\text{Decoded})}',
+      value: isReady ? `${killSwitchTwin?.gates.g_layer ?? 0}` : 'Belum Dievaluasi',
+      numericVal: isReady ? killSwitchTwin?.gates.g_layer : undefined,
+      unit: 'Biner Boolean',
+      domain: '{0, 1}',
+      status: isReady
+        ? killSwitchTwin?.gates.g_layer === 1
+          ? 'Lolos (Integritas Biner & Format Valid)'
+          : killSwitchTwin?.gates.diagnostics.layerStatus === 'FORMAT_MISMATCH'
+          ? 'Gagal (Inkonsistensi Format Ekstensi / MIME)'
+          : killSwitchTwin?.gates.diagnostics.layerStatus === 'DECODE_FAILED'
+          ? 'Gagal (Gagal Mendekode Berkas Gambar)'
+          : 'Gagal (Tanda Tangan Biner Tidak Valid)'
+        : 'Belum Dievaluasi',
+      statusType: isReady && killSwitchTwin?.gates.g_layer === 1 ? 'success' : isReady ? 'danger' : 'neutral',
+      notes: isReady ? killSwitchTwin?.gates.diagnostics.layerReason || 'Pemeriksaan signature dan decoding internal; bukan verifikasi ISO' : 'Verifikasi signature biner dan decoding gambar (bukan penentu asal kamera/manusia)',
+    },
+    {
+      id: 'g_rasio',
+      stage: 'Tahap 1',
+      category: 'Gerbang & Kill-Switch',
+      name: 'Gerbang Resolusi Fisik Full HD+ Spasial',
+      symbol: 'g_rasio',
+      formula: 'g_rasio = 1_{((W ≥ 1920 ∧ H ≥ 1080) ∨ (H ≥ 1920 ∧ W ≥ 1080))}',
+      formulaLatex: 'g_{\\text{rasio}} = \\mathbb{I}_{((W \\ge 1920 \\land H \\ge 1080) \\lor (H \\ge 1920 \\land W \\ge 1080))}',
+      value: isReady ? `${killSwitchTwin?.gates.g_rasio ?? 0}` : 'Belum Dievaluasi',
+      numericVal: isReady ? killSwitchTwin?.gates.g_rasio : undefined,
+      unit: 'Biner Boolean',
+      domain: '{0, 1}',
+      status: isReady
+        ? killSwitchTwin?.gates.g_rasio === 1
+          ? 'Lolos (Resolusi Fisik ≥ Full HD)'
+          : 'Gagal (Resolusi Fisik Di Bawah Batas Minimum Full HD)'
+        : 'Belum Dievaluasi',
+      statusType: isReady && killSwitchTwin?.gates.g_rasio === 1 ? 'success' : isReady ? 'danger' : 'neutral',
+      notes: isReady
+        ? `${metadata?.width} × ${metadata?.height} px (Toleransi Rasio Aspek: Bebas / Universal)`
+        : 'Syarat mutlak resolusi fisik (W ≥ 1920 & H ≥ 1080 atau portrait 1080×1920). Toleransi rasio aspek bebas.',
+    },
+    {
+      id: 'g_gerak',
+      stage: 'Tahap 1',
+      category: 'Gerbang & Kill-Switch',
+      name: 'Gerbang Varians Gradien Spasial (Var(∇I) > τ)',
+      symbol: 'g_gerak',
+      formula: 'g_gerak = 1_{(Var(∇I) > 1.0e-6)}',
+      formulaLatex: 'g_{\\text{gerak}} = \\mathbb{I}_{(\\text{Var}(\\nabla I) > 1.0 \\times 10^{-6})}',
+      value: isReady ? `${killSwitchTwin?.gates.g_gerak ?? 0}` : 'Belum Dievaluasi',
+      numericVal: isReady ? killSwitchTwin?.gates.g_gerak : undefined,
+      unit: 'Biner Boolean',
+      domain: '{0, 1}',
+      status: isReady
+        ? killSwitchTwin?.gates.g_gerak === 1
+          ? 'Lolos (Dinamika Fluks Spasial Memadai)'
+          : 'INSUFFICIENT_VISUAL_INFORMATION (Citra Datar/Kosong)'
+        : 'Belum Dievaluasi',
+      statusType: isReady && killSwitchTwin?.gates.g_gerak === 1 ? 'success' : isReady ? 'danger' : 'neutral',
+      notes: isReady
+        ? killSwitchTwin?.gates.diagnostics.gerakReason || 'Varians gradien melampaui ambang batas 1.0e-6'
+        : 'Formula audited Var(∇I) > 1.0e-6 pada skala normalisasi [0, 1]. Gambar minim tekstur berstatus INSUFFICIENT_VISUAL_INFORMATION.',
+    },
+    {
+      id: 'i_twin',
+      stage: 'Tahap 1 & 7',
+      category: 'Gerbang & Kill-Switch',
+      name: 'Indeks Proteksi Otonom Modul Twin',
+      symbol: 'I_Twin',
+      formula: 'I_Twin = 100 · G · (0.45 · S_raw + 0.35 · S_vid + 0.20 · S_progres)',
+      formulaLatex: 'I_{\\text{Twin}} = 100 \\cdot G \\cdot (0.45 \\cdot S_{\\text{raw}} + 0.35 \\cdot S_{\\text{vid}} + 0.20 \\cdot S_{\\text{progres}})',
+      value: isReady ? killSwitchTwin?.I_Twin.toFixed(2) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? killSwitchTwin?.I_Twin : undefined,
+      unit: 'Poin Indeks',
+      domain: '[0, 100]',
+      status: isReady
+        ? killSwitchTwin?.gates.G === 0
+          ? '0.00 (Hard Auto-Reject)'
+          : killSwitchTwin?.I_Twin && killSwitchTwin.I_Twin >= 50
+          ? 'Terotorisasi Otomatis'
+          : 'Peringatan Anomali'
+        : 'Menunggu Eksekusi',
+      statusType: isReady && killSwitchTwin?.gates.G === 0 ? 'danger' : isReady ? 'success' : 'neutral',
+      notes: isReady ? killSwitchTwin?.status ?? 'Normal' : 'Mengintegrasikan gerbang mutlak G dengan bobot multi-dimensi (G=0 ⇒ I_Twin=0)',
+    },
+
+    // -------------------------------------------------------------
+    // TAHAP 2: DEKONSTRUKSI MATRIKS CITRA
+    // -------------------------------------------------------------
+    {
+      id: 'm_rgb',
+      stage: 'Tahap 2',
+      category: 'Matriks Citra',
+      name: 'Tensor Matriks RGB 3D (Non-Destructive)',
+      symbol: 'M_RGB',
+      formula: 'M_RGB ∈ ℝ^(H × W × 3), M_RGB(y, x, c) ∈ [0, 255]',
+      formulaLatex: 'M_{\\text{RGB}} \\in \\mathbb{R}^{H \\times W \\times 3}, \\quad M_{\\text{RGB}}(y, x, c) \\in [0, 255]',
+      value: isReady ? `[${result?.M_RGB.shape.join(', ')}] uint8` : 'N/A (belum dievaluasi)',
+      unit: 'Tensor Dimensi',
+      domain: 'uint8 [0, 255]',
+      status: 'Buffer RGB dibentuk; kepatuhan ISO tidak dinilai',
+      statusType: 'success',
+      notes: isReady
+        ? `${(result!.M_RGB.data.byteLength / (1024 * 1024)).toFixed(2)} MB buffer; informasi ukuran tidak membuktikan preservasi forensik`
+        : 'Data buffer belum tersedia',
+    },
+    {
+      id: 'm_gray',
+      stage: 'Tahap 2',
+      category: 'Matriks Citra',
+      name: 'Matriks Luminansi Grayscale Linear (ITU-R BT.601)',
+      symbol: 'M_Gray',
+      formula: 'M_Gray(y, x) = 0.299 · R + 0.587 · G + 0.114 · B',
+      formulaLatex: 'M_{\\text{Gray}}(y, x) = 0.299 \\cdot R + 0.587 \\cdot G + 0.114 \\cdot B',
+      value: isReady ? `[${result?.M_Gray.shape.join(', ')}] float32` : 'N/A (belum dievaluasi)',
+      unit: 'Matriks Presisi Tinggi',
+      domain: 'float32 [0.0, 255.0]',
+      status: 'Transformasi luminansi menggunakan koefisien ITU-R BT.601',
+      statusType: 'info',
+      notes: isReady
+        ? `${(result!.M_Gray.data.byteLength / (1024 * 1024)).toFixed(2)} MB buffer Float32`
+        : 'Konvolusi linear luminansi presisi tinggi',
+    },
+    {
+      id: 'total_pixels',
+      stage: 'Tahap 2',
+      category: 'Matriks Citra',
+      name: 'Total Titik Piksel Spasial Full HD+',
+      symbol: 'N_pixels',
+      formula: 'N_pixels = H × W',
+      formulaLatex: 'N_{\\text{pixels}} = H \\times W',
+      value: isReady ? (metadata?.totalPixels ?? 0).toLocaleString() : 'N/A (belum dievaluasi)',
+      numericVal: isReady ? metadata?.totalPixels : undefined,
+      unit: 'Piksel Fisik',
+      domain: '≥ 2,073,600',
+      status: isReady ? 'Ambang resolusi internal terpenuhi' : 'Belum dievaluasi',
+      statusType: isReady ? 'success' : 'neutral',
+      notes: isReady ? `${metadata?.width} x ${metadata?.height}` : 'Dimensi citra belum tersedia',
+    },
+
+    // -------------------------------------------------------------
+    // TAHAP 3 & 4: PARTISI PATCH & PENYEIMBANG ADAPTIF
+    // -------------------------------------------------------------
+    {
+      id: 'micro_patches',
+      stage: 'Tahap 3',
+      category: 'Partisi Patch',
+      name: 'Partisi Micro-Patches Spasial Nyata (Overlap ~50%)',
+      symbol: 'K_patches',
+      formula: 'K_patches = gridX × gridY = 214 × 140 = 29.960 patch nyata (distribusi merata [0, W - patchW] & [0, H - patchH])',
+      formulaLatex: 'K_{\\text{patches}} = \\text{gridX} \\times \\text{gridY} = 214 \\times 140 = 29.960',
+      value: isReady ? (adaptiveBalancing?.totalMicroPatches ?? 29960).toLocaleString() : 'N/A (belum dievaluasi)',
+      numericVal: isReady ? adaptiveBalancing?.totalMicroPatches : undefined,
+      unit: 'Patch Nyata',
+      domain: 'Integer Spasial',
+      status: 'Cakupan Batas Penuh [0, W] & [0, H]',
+      statusType: 'info',
+      notes: 'Grid 214×140 patch nyata (Full HD: 17×15 px, overlap nominal ~50%, sampling internal pSampleStep=floor(patchW/4)). Batas kanan dan bawah tercakup penuh tanpa dummy counter.',
+    },
+    {
+      id: 'lambda_global',
+      stage: 'Tahap 4',
+      category: 'Penyeimbang Adaptif',
+      name: 'Varians Laplacian Global (Aktivitas Tekstur Spasial)',
+      symbol: 'Λ_global',
+      formula: 'Λ_global = Var(∇² I) = (1/N) · Σ (∇² I(x, y) - μ_∇²)²',
+      formulaLatex: '\\Lambda_{\\text{global}} = \\text{Var}(\\nabla^2 I) = \\frac{1}{N} \\sum_{x, y} (\\nabla^2 I(x, y) - \\mu_{\\nabla^2})^2',
+      value: isReady ? adaptiveBalancing?.lambda_global.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? adaptiveBalancing?.lambda_global : undefined,
+      unit: 'Varians Kuadrat',
+      domain: '[0, +∞)',
+      status: isReady && adaptiveBalancing ? (adaptiveBalancing.lambda_global > 0.05 ? 'Varians Laplacian relatif tinggi' : 'Varians Laplacian relatif rendah') : 'Belum tersedia',
+      statusType: 'neutral',
+      notes: 'Operator diferensial orde dua Laplacian untuk estimasi ketajaman tepi',
+    },
+    {
+      id: 'mean_sigma2',
+      stage: 'Tahap 4',
+      category: 'Penyeimbang Adaptif',
+      name: 'Rata-Rata Varians Spasial Micro-Patches',
+      symbol: 'σ̄²',
+      formula: 'σ̄² = (1/K) · Σ_k σ²_k',
+      formulaLatex: '\\bar{\\sigma}^2 = \\frac{1}{K} \\sum_{k=1}^K \\sigma_k^2',
+      value: isReady ? adaptiveBalancing?.mean_sigma2.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? adaptiveBalancing?.mean_sigma2 : undefined,
+      unit: 'Varians Lokal',
+      domain: '[0, +∞)',
+      status: isReady ? 'Statistik varians dihitung' : 'Belum tersedia',
+      statusType: 'neutral',
+      notes: 'Rata-rata energi varians lokal seluruh micro-patches',
+    },
+    {
+      id: 'pi_cond',
+      stage: 'Tahap 4',
+      category: 'Penyeimbang Adaptif',
+      name: 'Indeks Penalti Spasial Frekuensi Tinggi (Π_cond)',
+      symbol: 'Π_cond',
+      formula: 'Π_cond = clamp(0.18, 1.0, exp(-κ · Δ_var))',
+      formulaLatex: '\\Pi_{\\text{cond}} = \\text{clamp}\\left(0.18, 1.0, \\exp(-\\kappa \\cdot \\Delta_{\\text{var}})\\right)',
+      value: isReady ? adaptiveBalancing?.global_pi_cond.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? adaptiveBalancing?.global_pi_cond : undefined,
+      unit: 'Koefisien Reduksi',
+      domain: '[0.18, 1.0]',
+      status: isReady && adaptiveBalancing ? (adaptiveBalancing.global_pi_cond >= 0.5 ? 'Koefisien penalti relatif tinggi' : 'Koefisien penalti relatif rendah') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: 'Meredam sinyal frekuensi tinggi artifisial pada area kompleks / rajutan',
+    },
+    {
+      id: 'w_eff_cnn',
+      stage: 'Tahap 4',
+      category: 'Bobot Efektif Multi-Agen',
+      name: 'Bobot Efektif Fitur Residual Laplacian (legacy key CNN)',
+      symbol: 'w_eff,CNN',
+      formula: 'w_eff,CNN = w_CNN / Σ w_eff',
+      formulaLatex: 'w_{\\text{eff,CNN}} = \\frac{w_{\\text{CNN}}}{\\sum_j w_{\\text{eff},j}}',
+      value: isReady ? adaptiveBalancing?.global_weights.effective.percentages.CNN ?? 'N/A' : 'N/A',
+      unit: 'Persentase Alokasi',
+      domain: '[0%, 100%]',
+      status: isReady ? 'Bobot keluaran pipeline' : 'Belum tersedia',
+      statusType: 'info',
+      notes: 'Menganalisis artefak residual konvolusional laten',
+    },
+    {
+      id: 'w_eff_lbp',
+      stage: 'Tahap 4',
+      category: 'Bobot Efektif Multi-Agen',
+      name: 'Bobot Efektif Agen LBP (Local Binary Pattern Texture)',
+      symbol: 'w_eff,LBP',
+      formula: 'w_eff,LBP = w_LBP / Σ w_eff',
+      formulaLatex: 'w_{\\text{eff,LBP}} = \\frac{w_{\\text{LBP}}}{\\sum_j w_{\\text{eff},j}}',
+      value: isReady ? adaptiveBalancing?.global_weights.effective.percentages.LBP ?? 'N/A' : 'N/A',
+      unit: 'Persentase Alokasi',
+      domain: '[0%, 100%]',
+      status: isReady ? 'Bobot keluaran pipeline' : 'Belum tersedia',
+      statusType: 'info',
+      notes: 'Evaluasi struktur tekstur mikro lokal piksel',
+    },
+    {
+      id: 'w_eff_multilid',
+      stage: 'Tahap 4',
+      category: 'Bobot Efektif Multi-Agen',
+      name: 'Bobot Efektif Agen MultiLID (Manifold Topology)',
+      symbol: 'w_eff,MultiLID',
+      formula: 'w_eff,MultiLID = w_MultiLID / Σ w_eff',
+      formulaLatex: 'w_{\\text{eff,MultiLID}} = \\frac{w_{\\text{MultiLID}}}{\\sum_j w_{\\text{eff},j}}',
+      value: isReady ? adaptiveBalancing?.global_weights.effective.percentages.MultiLID ?? 'N/A' : 'N/A',
+      unit: 'Persentase Alokasi',
+      domain: '[0%, 100%]',
+      status: isReady ? 'Bobot keluaran pipeline' : 'Belum tersedia',
+      statusType: 'info',
+      notes: 'Mengukur dimensi intrinsik topologi manifold data citra',
+    },
+    {
+      id: 'w_eff_fft',
+      stage: 'Tahap 4',
+      category: 'Bobot Efektif Multi-Agen',
+      name: 'Bobot Efektif Agen FFT (Spektral Frekuensi Tinggi Terpenalti)',
+      symbol: 'w_eff,FFT',
+      formula: 'w_eff,FFT = (w_FFT · Π_cond) / Σ w_eff',
+      formulaLatex: 'w_{\\text{eff,FFT}} = \\frac{w_{\\text{FFT}} \\cdot \\Pi_{\\text{cond}}}{\\sum_j w_{\\text{eff},j}}',
+      value: isReady ? adaptiveBalancing?.global_weights.effective.percentages.FFT ?? 'N/A' : 'N/A',
+      unit: 'Persentase Alokasi',
+      domain: '[0%, 100%]',
+      status: isReady ? 'Bobot keluaran setelah modulasi Π_cond' : 'Belum tersedia',
+      statusType: 'info',
+      notes: 'Spektrum 2D Fourier termodulasi penalti spasial',
+    },
+
+    // -------------------------------------------------------------
+    // TAHAP 5 & 6: INTERVENSI KOGNITIF (NTSD), MANIFOLD & MARKOV
+    // -------------------------------------------------------------
+    {
+      id: 'psi_asym',
+      stage: 'Tahap 6',
+      category: 'Intervensi Kognitif NTSD',
+      name: 'Statistik Asimetri Gradien/Goresan (Ψ_asym)',
+      symbol: 'Ψ_asym',
+      formula: 'Ψ_asym = (1/N) · Σ |∇M_local - μ_∇| × Kurtosis(θ_stroke)',
+      formulaLatex: '\\Psi_{\\text{asym}} = \\frac{1}{N} \\sum |\\nabla M_{\\text{local}} - \\mu_\\nabla| \\times \\text{Kurtosis}(\\theta_{\\text{stroke}})',
+      value: isReady ? cognitiveIntervention?.psi_asym.value.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? cognitiveIntervention?.psi_asym.value : undefined,
+      unit: 'Skalar Goresan',
+      domain: '[0, +∞)',
+      status: isReady ? 'Indikator heuristik; bukan identifikasi asal goresan' : 'Belum tersedia',
+      statusType: 'neutral',
+      notes: isReady
+        ? `MAD=${cognitiveIntervention?.psi_asym.gradientMAD.toFixed(3)}, Kurtosis=${cognitiveIntervention?.psi_asym.strokeKurtosis.toFixed(3)}`
+        : 'Statistik gradien dan kurtosis; tidak membuktikan tekanan kuas atau interaksi manusia',
+    },
+    {
+      id: 'phi_grid',
+      stage: 'Tahap 6',
+      category: 'Intervensi Kognitif NTSD',
+      name: 'Energi Periodisitas Spektral (Φ_grid)',
+      symbol: 'Φ_grid',
+      formula: 'Φ_grid = Σ |P(f_r) - Baseline(1/f^α)|² × 1_{(P(f_r) > γ)}',
+      formulaLatex: '\\Phi_{\\text{grid}} = \\sum |P(f_r) - \\text{Baseline}(1/f^\\alpha)|^2 \\times \\mathbb{I}_{(P(f_r) > \\gamma)}',
+      value: isReady ? cognitiveIntervention?.phi_grid.value.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? cognitiveIntervention?.phi_grid.value : undefined,
+      unit: 'Energi Harmonik',
+      domain: '[0, +∞)',
+      status: isReady ? 'Indikator spektral heuristik; bukan deteksi AI tervalidasi' : 'Belum tersedia',
+      statusType: 'warning',
+      notes: isReady
+        ? `Puncak Harmonik=${cognitiveIntervention?.phi_grid.peakCount}, Power-Law α=${cognitiveIntervention?.phi_grid.alphaFitted}`
+        : 'Mengukur energi periodisitas spektral; tidak mengidentifikasi generator atau transformer',
+    },
+    {
+      id: 'omega_human',
+      stage: 'Tahap 6',
+      category: 'Intervensi Kognitif NTSD',
+      name: 'Modulasi Peredam Bias Rajutan / Manual Craft (Ω_human)',
+      symbol: 'Ω_human',
+      formula: 'Ω_human = clamp(0.35, 1.0, 1.0 - 0.65 · Ψ_norm · (1.0 - Φ_norm)) (Alternative C: Bounded Corrected NTSD)',
+      formulaLatex: '\\Omega_{\\text{human}} = \\text{clamp}\\left(0.35, 1.0, 1.0 - 0.65 \\cdot \\Psi_{\\text{norm}} \\cdot (1.0 - \\Phi_{\\text{norm}})\\right)',
+      value: isReady ? cognitiveIntervention?.omega_human.value.toFixed(4) ?? 'N/A' : 'N/A',
+      numericVal: isReady ? cognitiveIntervention?.omega_human.value : undefined,
+      unit: 'Faktor Modulasi',
+      domain: '[0.35, 1.0]',
+      status: isReady ? cognitiveIntervention?.omega_human.classification ?? 'Status tidak tersedia' : 'Belum tersedia',
+      statusType: 'warning',
+      notes: isReady
+        ? `Keyakinan: ${cognitiveIntervention?.omega_human.confidencePercentage}`
+        : 'Modulasi heuristik untuk mengurangi sensitivitas pada tekstur kompleks; efektivitas perlu validasi dataset',
+    },
+    {
+      id: 'multilid_mean',
+      stage: 'Tahap 6',
+      category: 'Manifold & Entropi',
+      name: 'Estimasi Local Intrinsic Dimensionality (MultiLID)',
+      symbol: 'LID̄(x; k)',
+      formula: 'LID(x; k) = - [ (1/k) · Σ ln( r_i(x) / r_k(x) ) ]^(-1)',
+      formulaLatex: '\\text{LID}(x; k) = - \\left[ \\frac{1}{k} \\sum_{i=1}^k \\ln\\left( \\frac{r_i(x)}{r_k(x)} \\right) \\right]^{-1}',
+      value: isReady ? (multiLID?.estimationStatus === 'VALID' ? multiLID.meanMultiLID.toFixed(2) : 'N/A (data tidak cukup/valid)') : 'N/A',
+      numericVal: isReady && multiLID?.estimationStatus === 'VALID' ? multiLID.meanMultiLID : undefined,
+      unit: 'Dimensi Manifold',
+      domain: 'Dimensi Riil',
+      status: isReady ? multiLID?.manifoldState ?? 'Status tidak tersedia' : 'Belum tersedia',
+      statusType: 'warning',
+      notes: isReady
+        ? (multiLID?.estimationStatus === 'VALID' ? `Baseline eksploratif: ~${multiLID.naturalBaseline.toFixed(2)} (belum tervalidasi universal), deviasi: ${(multiLID.manifoldCollapseRatio * 100).toFixed(1)}%` : `Estimasi tidak tersedia: ${multiLID?.estimationStatus ?? 'status tidak diketahui'}`)
+        : 'Baseline MultiLID belum tervalidasi; status estimasi harus diperiksa sebelum interpretasi',
+    },
+    {
+      id: 'markov_entropy',
+      stage: 'Tahap 6',
+      category: 'Manifold & Entropi',
+      name: 'Entropi Markov Spasial 2D (Mikro-Jitter Transisi)',
+      symbol: 'H_Markov',
+      formula: 'H_Markov = - Σ_i Σ_j P(x_i, x_j) · log₂( P(x_j | x_i) )',
+      formulaLatex: 'H_{\\text{Markov}} = - \\sum_{i} \\sum_{j} P(x_i, x_j) \\cdot \\log_2\\left( P(x_j \\mid x_i) \\right)',
+      value: isReady ? `${markovEntropy?.h_markov.toFixed(3)} bit` : 'N/A',
+      numericVal: isReady ? markovEntropy?.h_markov : undefined,
+      unit: 'bit / transisi',
+      domain: '[0, log₂ Bins]',
+      status: isReady ? markovEntropy?.transitionSignature ?? 'Status transisi tidak tersedia' : 'Belum tersedia',
+      statusType: 'warning',
+      notes: isReady
+        ? `Indeks tekstur/transisi eksploratif (legacy nama VAE): ${(markovEntropy!.vaeJitterIndex * 100).toFixed(1)}% (Pasangan: ${markovEntropy!.evaluatedPairs.toLocaleString()})`
+        : 'Indeks ini hanya heuristik transisi tekstur; bukan bukti VAE atau proses difusi',
+    },
+
+    // -------------------------------------------------------------
+    // TAHAP 7: KALIBRASI PLATT SCALING & KEPUTUSAN POSTERIOR
+    // -------------------------------------------------------------
+    {
+      id: 's_raw',
+      stage: 'Tahap 7',
+      category: 'Kalibrasi Platt Posterior',
+      name: 'Skor Mentah Terbobot Multi-Agen (S_raw)',
+      symbol: 'S_raw',
+      formula: 'S_raw = Σ_i w_eff,i · x_i',
+      formulaLatex: 'S_{\\text{raw}} = \\sum_{i} w_{\\text{eff},i} \\cdot x_i',
+      value: isReady ? (Number.isFinite(posteriorCalibration?.S_raw) ? posteriorCalibration?.S_raw.toFixed(2) ?? 'N/A' : 'TIDAK VALID') : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.S_raw) ? posteriorCalibration?.S_raw : undefined,
+      unit: 'Skor Skalar',
+      domain: '[0, 100]',
+      status: isReady ? (posteriorCalibration?.formattedResults.verdict === 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)' ? 'Bukti Tidak Valid / Korup' : 'Skor dihitung; belum tervalidasi untuk klasifikasi') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: isReady
+        ? `Agen: Laplacian residual (legacy X_CNN)=${Number.isFinite(posteriorCalibration?.agentScores.X_CNN) ? posteriorCalibration?.agentScores.X_CNN.toFixed(1) : 'INVALID'}, LBP=${Number.isFinite(posteriorCalibration?.agentScores.X_LBP) ? posteriorCalibration?.agentScores.X_LBP.toFixed(1) : 'INVALID'}, LID=${Number.isFinite(posteriorCalibration?.agentScores.X_MultiLID) ? posteriorCalibration?.agentScores.X_MultiLID.toFixed(1) : 'INVALID'}, FFT=${Number.isFinite(posteriorCalibration?.agentScores.X_FFT) ? posteriorCalibration?.agentScores.X_FFT.toFixed(1) : 'INVALID'}`
+        : 'Kombinasi linear skor 4 agen forensik utama',
+    },
+    {
+      id: 's_raw_final',
+      stage: 'Tahap 7',
+      category: 'Kalibrasi Platt Posterior',
+      name: 'Skor Mentah Termodulasi NTSD (S_raw_final)',
+      symbol: 'S_raw_final',
+      formula: 'S_raw_final = S_raw × Ω_human',
+      formulaLatex: 'S_{\\text{raw,final}} = S_{\\text{raw}} \\times \\Omega_{\\text{human}}',
+      value: isReady ? (Number.isFinite(posteriorCalibration?.S_raw_final) ? posteriorCalibration?.S_raw_final.toFixed(2) ?? 'N/A' : 'TIDAK VALID') : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.S_raw_final) ? posteriorCalibration?.S_raw_final : undefined,
+      unit: 'Skor Skalar',
+      domain: '[0, 100]',
+      status: isReady && posteriorCalibration ? (posteriorCalibration.formattedResults.verdict === 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)' ? 'Bukti Tidak Valid / Korup' : 'Skor tersedia; belum tervalidasi untuk klasifikasi') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: 'Skor hasil modulasi matematis; bukan ukuran autentisitas atau asal pembuat' ,
+    },
+    {
+      id: 'iqa',
+      stage: 'Tahap 7',
+      category: 'Kalibrasi Platt Posterior',
+      name: 'Kualitas Citra Fisik (Image Quality Assessment)',
+      symbol: 'IQA',
+      formula: 'IQA = 0.4 · Kontras + 0.35 · Ketajaman + 0.25 · SNR',
+      formulaLatex: '\\text{IQA} = 0.4 \\cdot C_{\\text{Weber}} + 0.35 \\cdot S_{\\text{sharp}} + 0.25 \\cdot \\text{SNR}',
+      value: isReady ? `${posteriorCalibration?.IQA.toFixed(1)}` : 'N/A',
+      numericVal: isReady ? posteriorCalibration?.IQA : undefined,
+      unit: 'Skor Mutu Fisik',
+      domain: '[0, 100]',
+      status: isReady && posteriorCalibration ? (posteriorCalibration.IQA >= 70 ? 'Skor mutu citra relatif tinggi' : 'Skor mutu citra relatif rendah') : 'Belum tersedia',
+      statusType: 'info',
+      notes: 'Mencegah vonis keliru akibat gambar buram/terkompresi ekstrim',
+    },
+    {
+      id: 'q_damping',
+      stage: 'Tahap 7',
+      category: 'Kalibrasi Platt Posterior',
+      name: 'Faktor Damping Kualitas Citra Fisik (Q_damping)',
+      symbol: 'Q_damping',
+      formula: 'Q_damping = 0.65 + 0.35 · (IQA / 100)',
+      formulaLatex: 'Q_{\\text{damping}} = 0.65 + 0.35 \\cdot \\left( \\frac{\\text{IQA}}{100} \\right)',
+      value: isReady ? (Number.isFinite(posteriorCalibration?.Q_damping) ? posteriorCalibration?.Q_damping.toFixed(3) ?? 'N/A' : 'TIDAK VALID') : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.Q_damping) ? posteriorCalibration?.Q_damping : undefined,
+      unit: 'Faktor Pengali',
+      domain: '[0.65, 1.0]',
+      status: isReady ? 'Faktor damping dihitung' : 'Belum tersedia',
+      statusType: 'neutral',
+      notes: 'Meredam ekstremitas logit z jika kualitas citra rendah',
+    },
+    {
+      id: 'logit_z',
+      stage: 'Tahap 7',
+      category: 'Kalibrasi Platt Posterior',
+      name: 'Logit Linear Terkalibrasi (z)',
+      symbol: 'z',
+      formula: 'z = ((S_raw_final / 100) - 0.5) × 3.6 × Q_damping',
+      formulaLatex: 'z = \\left( \\frac{S_{\\text{raw,final}}}{100} - 0.5 \\right) \\times 3.6 \\times Q_{\\text{damping}}',
+      value: isReady ? (Number.isFinite(posteriorCalibration?.z) ? posteriorCalibration?.z.toFixed(4) ?? 'N/A' : 'TIDAK VALID') : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.z) ? posteriorCalibration?.z : undefined,
+      unit: 'Logit Riil',
+      domain: '(-∞, +∞)',
+      status: isReady && posteriorCalibration ? (posteriorCalibration.calibrationStatus === 'UNVALIDATED_FIXED_PARAMETERS' ? 'Belum tervalidasi; bukan klasifikasi' : 'Nilai logit tersedia; interpretasi perlu validasi') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: 'Input log-odds linear untuk fungsi kurva sigmoidal Platt Scaling',
+    },
+    {
+      id: 'prob_ai',
+      stage: 'Tahap 7',
+      category: 'Keputusan Forensik Akhir',
+      name: 'Skor Logistik Indikatif AI (belum tervalidasi)',
+      symbol: 'Skor AI indikatif',
+      formula: 'Skor logistik indikatif = 1 / [1 + exp(A · z + B)]; belum terkalibrasi pada dataset independen.',
+      formulaLatex: '\\text{Skor indikatif} = \\frac{1}{1 + \\exp(A \\cdot z + B)}; \\text{belum tervalidasi}',
+      value: isReady ? posteriorCalibration?.formattedResults.probAIPercentage ?? 'N/A' : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.probabilityAI) ? posteriorCalibration?.probabilityAI : undefined,
+      unit: 'Skor indikatif (%)',
+      domain: '[0.0%, 100.0%] (bukan probabilitas tervalidasi)',
+      status: isReady && posteriorCalibration ? (posteriorCalibration.formattedResults.verdict === 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)' ? 'Bukti korup' : 'Belum tervalidasi — bukan vonis AI') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: 'Parameter tetap belum diuji pada dataset ground-truth independen; skor tidak boleh ditafsirkan sebagai probabilitas AI.',
+    },
+    {
+      id: 'prob_human',
+      stage: 'Tahap 7',
+      category: 'Keputusan Forensik Akhir',
+      name: 'Komplemen skor indikatif (bukan probabilitas manusia)',
+      symbol: 'Komplemen skor',
+      formula: 'Komplemen = 1 - skor AI indikatif; bukan probabilitas manusia tervalidasi.',
+      formulaLatex: '\\text{Komplemen skor} = 1 - \\text{skor AI indikatif}',
+      value: isReady ? posteriorCalibration?.formattedResults.probHumanPercentage ?? 'N/A' : 'N/A',
+      numericVal: isReady && Number.isFinite(posteriorCalibration?.probabilityHuman) ? posteriorCalibration?.probabilityHuman : undefined,
+      unit: 'Skor komplemen (%)',
+      domain: '[0.0%, 100.0%]',
+      status: isReady && posteriorCalibration ? (posteriorCalibration.formattedResults.verdict === 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)' ? 'Bukti korup' : 'Belum tervalidasi — bukan vonis manusia') : 'Belum tersedia',
+      statusType: 'warning',
+      notes: 'Komplemen skor indikatif; bukan probabilitas manusia yang tervalidasi.',
+    },
+  ];
+}
+
+/**
+ * EXPORT FORMAT GENERATORS
+ */
+export function exportToMarkdown(
+  rows: JournalRowItem[],
+  fileName: string = 'citra_uji.png',
+  result?: MathematicalEngineResult | null
+): string {
+  const header = `### TABEL JURNAL FORENSIK HASIL FORMULA MATEMATIKA (VEROIA v5-Ultra)
+**Berkas Citra:** \`${fileName}\` | **Dimensi:** ${result ? `${result.metadata.width} × ${result.metadata.height} px` : 'Belum tersedia'} | **Referensi:** ISO/IEC 27037:2012 (acuan, bukan sertifikasi)
+**Waktu Eksekusi Pipeline:** ${result?.metadata.executionTimeMs ?? 'Belum tersedia'} ms | **Keputusan sistem:** ${result?.posteriorCalibration.formattedResults.verdict ?? 'BELUM DIEVALUASI'}
+**Skor AI indikatif:** ${result?.posteriorCalibration.formattedResults.probAIPercentage ?? 'BELUM TERSEDIA'} | **Komplemen skor:** ${result?.posteriorCalibration.formattedResults.probHumanPercentage ?? 'BELUM TERSEDIA'} | **Status kalibrasi:** ${result?.posteriorCalibration.calibrationStatus ?? 'BELUM DIKETAHUI'}
+
+| No | Tahap | Parameter / Metrik | Notasi | Formula Matematika | Nilai Terhitung | Satuan / Skala | Status / Diagnosis Forensik | Catatan |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+`;
+  const body = rows
+    .map(
+      (r, idx) =>
+        `| ${idx + 1} | ${r.stage} | ${r.name} | \`${r.symbol}\` | \`${r.formula}\` | **${r.value}** | ${r.unit} (${r.domain}) | ${r.status} | ${r.notes} |`
+    )
+    .join('\n');
+
+  return `${header}${body}\n\n*Catatan: Tabel ini merangkum nilai yang dihasilkan pipeline. Penyajian ini tidak membuktikan autentisitas citra, chain of custody, atau kepatuhan ISO/IEC 27037:2012.*`;
+}
+
+export function exportToLatex(
+  rows: JournalRowItem[],
+  fileName: string = 'citra_uji.png'
+): string {
+  const latexHeader = `% ============================================================================
+% TABEL JURNAL HASIL EVALUASI FORMULA FORENSIK CITRA DIGITAL
+% Berkas: ${fileName} | Referensi teknis: ITU-R BT.601 | ISO/IEC 27037:2012 tidak diverifikasi oleh ekspor ini
+% Diekspor secara otomatis dari VEROIA v5-Ultra Computational Forensic Engine
+% ============================================================================
+\\begin{table*}[t]
+\\centering
+\\caption{Rangkuman Evaluasi Parameter dan Nilai Formula Matematis Pipeline Forensik}
+\\label{tab:hasil_formula_forensik}
+\\begin{tabular}{c l l c p{5.5cm} c l}
+\\hline
+\\textbf{No} & \\textbf{Tahap} & \\textbf{Metrik / Parameter} & \\textbf{Simbol} & \\textbf{Formula Matematis} & \\textbf{Nilai Terhitung} & \\textbf{Status Forensik} \\\\
+\\hline
+`;
+  const latexBody = rows
+    .map((r, idx) => {
+      const cleanName = r.name.replace(/_/g, '\\_').replace(/&/g, '\\&');
+      const cleanLatex = `$${r.formulaLatex}$`;
+      const cleanVal = r.value.replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const cleanStatus = r.status.replace(/%/g, '\\%').replace(/_/g, '\\_');
+      return `${idx + 1} & ${r.stage} & ${cleanName} & $${r.symbol}$ & ${cleanLatex} & \\textbf{${cleanVal}} & ${cleanStatus} \\\\`;
+    })
+    .join('\n');
+
+  const latexFooter = `
+\\hline
+\\end{tabular}
+\\end{table*}`;
+
+  return `${latexHeader}${latexBody}${latexFooter}`;
+}
+
+export function exportToCsv(rows: JournalRowItem[]): string {
+  const csvHeader = 'No\tTahap\tKategori\tNama Parameter\tSimbol\tFormula Matematika\tNilai Terhitung\tSatuan\tDomain\tStatus Diagnosis\tCatatan Forensik\n';
+  const csvBody = rows
+    .map((r, idx) =>
+      [
+        idx + 1,
+        r.stage,
+        r.category,
+        r.name,
+        r.symbol,
+        r.formula,
+        r.value,
+        r.unit,
+        r.domain,
+        r.status,
+        r.notes,
+      ].join('\t')
+    )
+    .join('\n');
+
+  return `${csvHeader}${csvBody}`;
+}
+
+export function exportToJson(
+  rows: JournalRowItem[],
+  fileName: string = 'citra_uji.png',
+  result?: MathematicalEngineResult | null
+): string {
+  const data = {
+    metadata: {
+      fileName,
+      resolution: result ? `${result.metadata.width}x${result.metadata.height}` : 'NOT_AVAILABLE',
+      totalPixels: result?.metadata.totalPixels ?? null,
+      referenceStandard: 'ISO/IEC 27037:2012 (reference only; compliance not assessed)',
+      executionTimeMs: result?.metadata.executionTimeMs ?? null,
+      verdict: result?.posteriorCalibration.formattedResults.verdict ?? 'NOT_EVALUATED',
+      indicativeAIScore: result?.posteriorCalibration.formattedResults.probAIPercentage ?? 'NOT_AVAILABLE',
+      complementaryScore: result?.posteriorCalibration.formattedResults.probHumanPercentage ?? 'NOT_AVAILABLE',
+      exportTimestamp: new Date().toISOString(),
+    },
+    totalFormulas: rows.length,
+    formulas: rows.map((r, idx) => ({
+      no: idx + 1,
+      stage: r.stage,
+      category: r.category,
+      name: r.name,
+      symbol: r.symbol,
+      formula: r.formula,
+      formulaLatex: r.formulaLatex,
+      calculatedValue: r.value,
+      numericValue: r.numericVal,
+      unit: r.unit,
+      domain: r.domain,
+      status: r.status,
+      notes: r.notes,
+    })),
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+export function exportToPlainText(
+  rows: JournalRowItem[],
+  fileName: string = 'citra_uji.png',
+  result?: MathematicalEngineResult | null
+): string {
+  const separator = '='.repeat(85);
+  const line = '-'.repeat(85);
+  const header = `${separator}\nJURNAL HASIL PERHITUNGAN FORMULA MATEMATIKA FORENSIK DIGITAL\n${separator}\n` +
+    `Berkas Uji       : ${fileName}\n` +
+    `Dimensi Citra    : ${result ? `${result.metadata.width} × ${result.metadata.height} px` : 'Belum tersedia'}\n` +
+    `Total Piksel     : ${result ? result.metadata.totalPixels.toLocaleString() : 'N/A (belum dievaluasi)'} piksel\n` +
+    `Referensi : ISO/IEC 27037:2012 (kepatuhan tidak dinilai)\n` +
+    `Status Sistem    : ${result?.posteriorCalibration.formattedResults.verdict ?? 'BELUM DIEVALUASI'}\n` +
+    `Skor AI indikatif (belum tervalidasi): ${result?.posteriorCalibration.formattedResults.probAIPercentage ?? 'BELUM TERSEDIA'}\n` +
+    `Skor komplemen (bukan probabilitas manusia): ${result?.posteriorCalibration.formattedResults.probHumanPercentage ?? 'BELUM TERSEDIA'}\n` +
+    `${line}\n` +
+    `DAFTAR NILAI FORMULA TERHITUNG (${rows.length} ITEM):\n` +
+    `${line}\n`;
+
+  const body = rows
+    .map(
+      (r, idx) =>
+        `[${idx + 1}] ${r.stage.toUpperCase()} - ${r.name}\n` +
+        `    Simbol   : ${r.symbol}\n` +
+        `    Formula  : ${r.formula}\n` +
+        `    Hasil    : ${r.value} (${r.unit}, Skala: ${r.domain})\n` +
+        `    Status   : ${r.status}\n` +
+        `    Catatan  : ${r.notes}\n`
+    )
+    .join(`${line}\n`);
+
+  return `${header}${body}${separator}\n`;
+}
+
+export default function JournalFormulaTable({
+  result,
+  fileName = 'citra_uji.png',
+  fileSize = 0,
+  previewMode = false,
+  onClose,
+}: JournalFormulaTableProps) {
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
+
+  // Trigger copy feedback notification
+  const triggerCopyNotice = (msg: string) => {
+    setCopyFeedback(msg);
+    setTimeout(() => setCopyFeedback(null), 3000);
+  };
+
+  // Build the complete list of journal entries
+  const journalRows: JournalRowItem[] = useMemo(() => {
+    return buildJournalRows(result);
+  }, [result]);
+
+  // Categories for filter tabs
+  const categories = useMemo(() => {
+    const list = ['Semua'];
+    journalRows.forEach((r) => {
+      if (!list.includes(r.category)) {
+        list.push(r.category);
+      }
+    });
+    return list;
+  }, [journalRows]);
+
+  // Filtered rows by search and category
+  const filteredRows = useMemo(() => {
+    return journalRows.filter((r) => {
+      const matchCat = selectedCategory === 'Semua' || r.category === selectedCategory;
+      const matchSearch =
+        searchQuery.trim() === '' ||
+        r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.formula.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.stage.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.status.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCat && matchSearch;
+    });
+  }, [journalRows, selectedCategory, searchQuery]);
+
+  // =========================================================================
+  // MASTER COPY ACTIONS
+  // =========================================================================
+
+  // Master Action: Salin Semua (Format Universal Markdown Lengkap)
+  const copyAllMaster = () => {
+    const text = exportToMarkdown(filteredRows, fileName, result);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA ${filteredRows.length} formula & hasil (Format Universal Markdown)!`);
+  };
+
+  // Copy as Markdown
+  const handleCopyMarkdown = () => {
+    const text = exportToMarkdown(filteredRows, fileName, result);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA formula sebagai Tabel Markdown!`);
+  };
+
+  // Copy as LaTeX
+  const handleCopyLatex = () => {
+    const text = exportToLatex(filteredRows, fileName);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA formula sebagai Tabel LaTeX!`);
+  };
+
+  // Copy as CSV / Excel TSV
+  const handleCopyCsv = () => {
+    const text = exportToCsv(filteredRows);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA formula untuk Excel / Spreadsheet!`);
+  };
+
+  // Copy as JSON
+  const handleCopyJson = () => {
+    const text = exportToJson(filteredRows, fileName, result);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA formula sebagai JSON Data!`);
+  };
+
+  // Copy as Plain Text
+  const handleCopyPlainText = () => {
+    const text = exportToPlainText(filteredRows, fileName, result);
+    navigator.clipboard.writeText(text);
+    triggerCopyNotice(`✓ Berhasil menyalin SEMUA formula sebagai Teks Jurnal!`);
+  };
+
+  // Copy single row item
+  const copySingleRow = (row: JournalRowItem) => {
+    const text = `Formula: ${row.formula}\nSimbol: ${row.symbol}\nNilai Terhitung: ${row.value}\nSatuan: ${row.unit}\nStatus: ${row.status}\nCatatan: ${row.notes}`;
+    navigator.clipboard.writeText(text);
+    setCopiedRowId(row.id);
+    setTimeout(() => setCopiedRowId(null), 2000);
+    triggerCopyNotice(`✓ Formula ${row.symbol} (${row.value}) berhasil disalin!`);
+  };
+
+  return (
+    <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col font-sans">
+      {/* Top Header Card */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-5 sm:p-6 border-b border-slate-700">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center gap-1">
+                <BookOpen className="w-3 h-3" />
+                Jurnal Ilmiah Forensik
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                Referensi ISO/IEC 27037:2012 (bukan sertifikasi)
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                ITU-R BT.601
+              </span>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              Tabel Jurnal Hasil Setiap Formula Matematis
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-3xl leading-relaxed">
+              Daftar formula komputasi, nilai keluaran pipeline, satuan/domain, dan catatan interpretasi indikatif yang dapat diekspor dalam berbagai format.
+            </p>
+          </div>
+
+          {/* Toast Copy Alert Banner */}
+          {copyFeedback && (
+            <div className="self-start md:self-center bg-emerald-500 text-slate-950 text-xs font-bold px-4 py-2.5 rounded-xl shadow-xl border border-emerald-300 animate-in fade-in slide-in-from-top duration-200 flex items-center gap-2">
+              <CheckCheck className="w-4 h-4 text-slate-950 shrink-0" />
+              <span>{copyFeedback}</span>
+            </div>
+          )}
+        </div>
+
+        {/* HERO MASTER COPY-ALL BAR */}
+        <div className="mt-5 p-4 bg-slate-950/70 border border-slate-700/80 rounded-2xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 shadow-inner">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Fitur Salin Semua Hasil (Copy All)</span>
+                <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  {filteredRows.length} Formula Terpilih
+                </span>
+              </div>
+              <div className="text-xs text-slate-300 mt-0.5">
+                Salin seluruh metrik, formula, nilai hasil, dan diagnosa ke clipboard dalam 1 klik.
+              </div>
+            </div>
+          </div>
+
+          {/* Master Copy Button & Format Selector */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* BIG PRIMARY COPY ALL BUTTON */}
+            <button
+              type="button"
+              onClick={copyAllMaster}
+              title="Salin SEMUA formula dan hasil kalkulasi sekaligus ke clipboard"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-extrabold rounded-xl bg-emerald-400 hover:bg-emerald-300 active:bg-emerald-500 text-slate-950 shadow-md hover:shadow-lg transition-all cursor-pointer whitespace-nowrap scale-[1.02]"
+            >
+              <Copy className="w-4 h-4 text-slate-950" />
+              <span>SALIN SEMUA (COPY ALL)</span>
+            </button>
+
+            {/* Excel Button */}
+            <button
+              type="button"
+              onClick={handleCopyCsv}
+              title="Salin semua formula dalam format Spreadsheet TSV / Excel"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-xs transition-all cursor-pointer border border-emerald-500/40"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Salin Semua (Excel)</span>
+            </button>
+
+            {/* LaTeX Button */}
+            <button
+              type="button"
+              onClick={handleCopyLatex}
+              title="Salin semua formula dalam format LaTeX Tabular (Paper IEEE/ACM)"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all cursor-pointer border border-indigo-400/40"
+            >
+              <FileCode className="w-3.5 h-3.5" />
+              <span>Salin Semua (LaTeX)</span>
+            </button>
+
+            {/* JSON Button */}
+            <button
+              type="button"
+              onClick={handleCopyJson}
+              title="Salin semua formula dalam format JSON data mentah"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition-all cursor-pointer border border-amber-400/40"
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              <span>Salin Semua (JSON)</span>
+            </button>
+
+            {/* Plain Text Button */}
+            <button
+              type="button"
+              onClick={handleCopyPlainText}
+              title="Salin semua formula dalam format teks laporan jurnal"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-700 hover:bg-slate-600 text-white shadow-xs transition-all cursor-pointer border border-slate-600"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Salin Semua (Teks)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter & Search Bar */}
+      <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Category Pill Filters */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+          {categories.map((cat) => {
+            const isSelected = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Search Field */}
+        <div className="relative min-w-[240px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari formula, simbol, atau parameter..."
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-sans text-slate-800 placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Meta Bar */}
+      <div className="px-5 py-2.5 bg-slate-100/70 border-b border-slate-200 text-xs font-mono text-slate-600 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-4">
+          <span>Menampilkan <strong>{filteredRows.length}</strong> dari {journalRows.length} formula</span>
+          {result && (
+            <span className="text-slate-500 hidden sm:inline">
+              Citra: <strong>{fileName}</strong> ({result.metadata.width}×{result.metadata.height} px)
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-blue-600" />
+          <span>Klik tombol hijau di atas untuk menyalin semua data, atau ikon salin per baris</span>
+        </div>
+      </div>
+
+      {/* Journal Table Body (Responsive Scroll) */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+              <th className="py-3 px-3 text-center w-12 font-mono">No</th>
+              <th className="py-3 px-3 w-28">Tahap</th>
+              <th className="py-3 px-4 min-w-[200px]">Parameter & Metrik</th>
+              <th className="py-3 px-3 w-28 font-mono">Simbol</th>
+              <th className="py-3 px-4 min-w-[280px]">Formula Matematika</th>
+              <th className="py-3 px-4 min-w-[140px] font-mono">Nilai Terhitung</th>
+              <th className="py-3 px-3 w-32 font-mono">Satuan / Skala</th>
+              <th className="py-3 px-4 min-w-[190px]">Status / Interpretasi</th>
+              <th className="py-3 px-3 text-center w-16">Salin</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filteredRows.map((row, idx) => {
+              const isCopied = copiedRowId === row.id;
+
+              // Color badge styling for status
+              const statusBadgeClass =
+                row.statusType === 'success'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : row.statusType === 'danger'
+                  ? 'bg-rose-50 text-rose-800 border-rose-200'
+                  : row.statusType === 'warning'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : row.statusType === 'info'
+                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                  : 'bg-slate-100 text-slate-800 border-slate-200';
+
+              return (
+                <tr
+                  key={row.id}
+                  className="hover:bg-blue-50/40 transition-colors group"
+                >
+                  {/* No */}
+                  <td className="py-3 px-3 text-center font-mono text-slate-400 group-hover:text-slate-600 font-semibold">
+                    {idx + 1}
+                  </td>
+
+                  {/* Tahap */}
+                  <td className="py-3 px-3 font-mono text-slate-600 font-medium">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md text-[11px] border border-slate-200">
+                      {row.stage}
+                    </span>
+                  </td>
+
+                  {/* Parameter & Metrik */}
+                  <td className="py-3 px-4">
+                    <div className="font-semibold text-slate-900 leading-snug">
+                      {row.name}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-sans mt-0.5">
+                      {row.category}
+                    </div>
+                  </td>
+
+                  {/* Simbol */}
+                  <td className="py-3 px-3 font-mono font-bold text-blue-700 text-[12px]">
+                    {row.symbol}
+                  </td>
+
+                  {/* Formula Matematika */}
+                  <td className="py-3 px-4 font-mono text-[11px] text-slate-700">
+                    <div className="bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200/80 font-mono text-slate-800 overflow-x-auto whitespace-nowrap">
+                      {row.formula}
+                    </div>
+                  </td>
+
+                  {/* Nilai Terhitung */}
+                  <td className="py-3 px-4 font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-extrabold text-slate-900 tracking-tight">
+                        {row.value}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* Satuan / Skala */}
+                  <td className="py-3 px-3 font-mono text-[11px] text-slate-500">
+                    <div>{row.unit}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{row.domain}</div>
+                  </td>
+
+                  {/* Status / Diagnosis */}
+                  <td className="py-3 px-4">
+                    <span
+                      className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold border ${statusBadgeClass}`}
+                    >
+                      {row.status}
+                    </span>
+                    <div className="text-[10px] text-slate-500 mt-1 leading-tight line-clamp-2" title={row.notes}>
+                      {row.notes}
+                    </div>
+                  </td>
+
+                  {/* Copy Row Button */}
+                  <td className="py-3 px-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => copySingleRow(row)}
+                      title={`Salin baris formula ${row.symbol}`}
+                      className={`p-2 rounded-lg transition-all cursor-pointer ${
+                        isCopied
+                          ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-400'
+                          : 'bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700'
+                      }`}
+                    >
+                      {isCopied ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Sticky / Footer Quick Bar with "Copy Semua" */}
+      <div className="p-4 bg-slate-900 text-white border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-emerald-400" />
+          <span className="font-semibold">Total {filteredRows.length} baris formula yang ditampilkan (bukan verifikasi ISO)</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-400 text-[11px]">Salin Semua:</span>
+          <button
+            type="button"
+            onClick={copyAllMaster}
+            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Salin Semua (Markdown)</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleCopyCsv}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-all cursor-pointer flex items-center gap-1.5 border border-slate-700"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Excel</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleCopyLatex}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-all cursor-pointer flex items-center gap-1.5 border border-slate-700"
+          >
+            <FileCode className="w-3.5 h-3.5 text-indigo-400" />
+            <span>LaTeX</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleCopyJson}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-all cursor-pointer flex items-center gap-1.5 border border-slate-700"
+          >
+            <Code2 className="w-3.5 h-3.5 text-amber-400" />
+            <span>JSON</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

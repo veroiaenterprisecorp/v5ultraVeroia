@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Full HD Image Uploader",
+  "description": "Tempat upload gambar khusus resolusi Full HD (1920x1080) ke atas, siap diintegrasikan dengan engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

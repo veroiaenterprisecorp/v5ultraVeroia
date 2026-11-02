@@ -1,0 +1,564 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Image as ImageIcon,
+  RefreshCw,
+  BookOpen,
+  HardDrive,
+  Sparkles,
+} from 'lucide-react';
+import {
+  hitungMatriksCitra,
+  type MatrixRGB3D,
+  type MatrixGrayscale2D,
+  type MathematicalEngineResult,
+} from './engine/matrixEngine';
+
+import ForensicDashboard from './components/ForensicDashboard';
+import JournalFormulaTable from './components/JournalFormulaTable';
+import ArtworkGallery from './components/ArtworkGallery';
+import {
+  getAllArtworks,
+  getStorageStats,
+  importBatchArtworks,
+  importSingleArtwork,
+  type StoredArtwork,
+  type BatchImportResult,
+} from './storage/internalStorage';
+import { eksekusiTahap1 } from './engine/pipeline/stage1Validator';
+import type { AbsoluteGates } from './engine/killSwitchTwin';
+import {
+  ImageProcessCoordinator,
+  type ImageValidationInfo,
+  type ImageProcessingState,
+} from './engine/pipeline/imageProcessCoordinator';
+
+export type { ImageValidationInfo, ImageProcessingState };
+export { ImageProcessCoordinator };
+
+/**
+ * ============================================================================
+ * ENGINE MATEMATIKA KOMPUTASI & MATRIX TRANSFORMATION
+ * ============================================================================
+ * Memproses:
+ * 1. Matriks RGB 3D (uint8):
+ *    M_RGB ∈ ℝ^(H × W × 3) ⇒ M_RGB(y, x, c) ∈ [0, 255]
+ * 2. Matriks Grayscale 2D (float32):
+ *    M_Gray ∈ ℝ^(H × W) = 0.299 · R + 0.587 · G + 0.114 · B
+ */
+export function jalankanEngine(
+  file: File,
+  width: number,
+  height: number,
+  imgElement?: HTMLImageElement,
+  stage1Gates?: AbsoluteGates
+): MathematicalEngineResult | null {
+  if (!imgElement) {
+    console.warn('[ENGINE] imgElement diperlukan untuk ekstraksi matriks citra.');
+    return null;
+  }
+
+  const hasil = hitungMatriksCitra(imgElement, width, height, file, stage1Gates);
+
+  // Pasang ke window object agar dapat diakses secara langsung oleh engine lanjutan
+  if (typeof window !== 'undefined') {
+    const w = window as unknown as {
+      M_RGB?: MatrixRGB3D;
+      M_Gray?: MatrixGrayscale2D;
+      matriksHasil?: MathematicalEngineResult;
+      penyeimbangAdaptif?: typeof hasil.adaptiveBalancing;
+      intervensiKognitif?: typeof hasil.cognitiveIntervention;
+      omega_human?: typeof hasil.cognitiveIntervention.omega_human;
+      multiLID?: typeof hasil.multiLID;
+      markovEntropy?: typeof hasil.markovEntropy;
+      kalibrasiPosterior?: typeof hasil.posteriorCalibration;
+      P_AI?: number;
+      killSwitchTwin?: typeof hasil.killSwitchTwin;
+      I_Twin?: number;
+      tahap7Result?: typeof hasil.tahap7Result;
+      stage5Result?: typeof hasil.stage5Result;
+    };
+    w.M_RGB = hasil.M_RGB;
+    w.M_Gray = hasil.M_Gray;
+    w.matriksHasil = hasil;
+    w.penyeimbangAdaptif = hasil.adaptiveBalancing;
+    w.intervensiKognitif = hasil.cognitiveIntervention;
+    w.omega_human = hasil.cognitiveIntervention.omega_human;
+    w.multiLID = hasil.multiLID;
+    w.markovEntropy = hasil.markovEntropy;
+    w.kalibrasiPosterior = hasil.posteriorCalibration;
+    w.P_AI = hasil.posteriorCalibration.probabilityAI;
+    w.killSwitchTwin = hasil.killSwitchTwin;
+    w.I_Twin = hasil.killSwitchTwin.I_Twin;
+    w.tahap7Result = hasil.tahap7Result;
+    w.stage5Result = hasil.stage5Result;
+  }
+
+  const { adaptiveBalancing, cognitiveIntervention, multiLID, markovEntropy, posteriorCalibration, killSwitchTwin } = hasil;
+  const { global_weights, global_pi_cond, lambda_global, mean_sigma2 } = adaptiveBalancing;
+  const { psi_asym, phi_grid, omega_human } = cognitiveIntervention;
+
+  console.log('%c[INSINYUR MATEMATIKA IT] Transformasi Matriks Selesai:', 'color: #2563eb; font-weight: bold; font-size: 13px;');
+  console.log(`• Dimensi Spasial: H = ${hasil.metadata.height}, W = ${hasil.metadata.width} (${hasil.metadata.totalPixels.toLocaleString()} piksel)`);
+  console.log('• Matriks RGB 3D (uint8):', hasil.M_RGB);
+  console.log('• Matriks Grayscale 2D (float32):', hasil.M_Gray);
+  
+  console.log('%c[PENYEIMBANG ADAPTIF FREKUENSI TINGGI]:', 'color: #059669; font-weight: bold;');
+  console.log(`• Λ_global: ${lambda_global.toFixed(4)} | Rata-rata σ²_k: ${mean_sigma2.toFixed(4)}`);
+  console.log(`• Indeks Penalti Spasial (Π_cond): ${global_pi_cond.toFixed(4)} (Rentang: [0.18, 1.0])`);
+  console.log('• Normalisasi Bobot Efektif (Σ ≡ 100%):', global_weights.effective.percentages);
+
+  console.log('%c[MODUL INTERVENSI KOGNITIF (AI VS MANUAL CRAFT)]:', 'color: #7c3aed; font-weight: bold;');
+  console.log(`• Ψ_asym (Asimetri Tekanan Kuas Tangan): ${psi_asym.value.toFixed(4)} [MAD: ${psi_asym.gradientMAD.toFixed(3)}, Kurtosis(θ): ${psi_asym.strokeKurtosis.toFixed(3)}]`);
+  console.log(`• Φ_grid (Periodisitas Kisi Mesin): ${phi_grid.value.toFixed(4)} [Harmonic Peaks: ${phi_grid.peakCount}, Power Law α: ${phi_grid.alphaFitted}]`);
+  console.log(`• Ω_human (Modulasi Bias Rajutan): ${omega_human.value.toFixed(4)} [Rasio Mentah: ${omega_human.rawRatio.toFixed(4)}]`);
+  console.log(`• Klasifikasi Kuas/Kisi: %c${omega_human.classification} (${omega_human.confidencePercentage})`, 'color: #2563eb; font-weight: bold;');
+
+  console.log('%c[ESTIMATOR LOCAL INTRINSIC DIMENSIONALITY (MultiLID)]:', 'color: #d97706; font-weight: bold;');
+  console.log(`• Estimasi MultiLID Terukur: ${multiLID.meanMultiLID.toFixed(2)} (Baseline Alami ~${multiLID.naturalBaseline.toFixed(2)})`);
+  console.log(`• Rasio Kolaps Manifold: ${(multiLID.manifoldCollapseRatio * 100).toFixed(1)}%`);
+  console.log(`• Status Topologi Manifold: %c${multiLID.manifoldState}`, multiLID.meanMultiLID >= 19.5 ? 'color: #059669; font-weight: bold;' : 'color: #dc2626; font-weight: bold;');
+  console.log('• Rincian Multi-Skala Tetangga k:', multiLID.scales.map((s) => `k=${s.k}: LID=${s.lid}`).join(' | '));
+
+  console.log('%c[ENTROPI MARKOV SPASIAL 2D & DESISAN MIKRO-JITTER VAE]:', 'color: #0284c7; font-weight: bold;');
+  console.log(`• H_Markov: ${markovEntropy.h_markov.toFixed(3)} bit/transisi (Formula: - Σ_i Σ_j P(x_i, x_j) · log_2 P(x_j | x_i))`);
+  console.log(`• Indeks Desisan Jitter VAE: ${(markovEntropy.vaeJitterIndex * 100).toFixed(1)}% | H_Joint: ${markovEntropy.jointEntropy.toFixed(3)} bit | H_Marginal: ${markovEntropy.marginalEntropy.toFixed(3)} bit`);
+  console.log(`• Diagnosis Fluktuasi VAE: %c${markovEntropy.transitionSignature}`, markovEntropy.h_markov >= 3.2 ? 'color: #dc2626; font-weight: bold;' : 'color: #059669; font-weight: bold;');
+
+  console.log('%c[FUSI MULTI-AGEN & KALIBRASI POSTERIOR PLATT SCALING]:', 'color: #e11d48; font-weight: bold; font-size: 13px;');
+  console.log('• Skor Mentah Multi-Agen (X_i):', posteriorCalibration.agentScores);
+  console.log(`• S_raw (Skor Terbobot Awal): ${posteriorCalibration.S_raw.toFixed(2)} / 100`);
+  console.log(`• Modulasi Rajutan (Ω_human): × ${posteriorCalibration.omega_human.toFixed(3)}`);
+  console.log(`• S_raw_final (Skor Termodulasi): ${posteriorCalibration.S_raw_final.toFixed(2)} / 100`);
+  console.log(`• IQA Citra Fisik: ${posteriorCalibration.IQA.toFixed(1)} / 100 ⇒ Q_damping: ${posteriorCalibration.Q_damping.toFixed(3)}`);
+  console.log(`• Logit Linear z: ${posteriorCalibration.z.toFixed(4)} (Formula: ((S_raw_final/100) - 0.5) × 3.6 × Q_damping)`);
+  console.log(`• Transformasi Platt Scaling: A = ${posteriorCalibration.plattParameters.A}, B = ${posteriorCalibration.plattParameters.B}`);
+  console.log(`• PROBABILITAS POSTERIOR P(AI | z): %c${posteriorCalibration.formattedResults.probAIPercentage}`, 'color: #e11d48; font-weight: bold; font-size: 14px;');
+  console.log(`• Probabilitas Posterior P(Human | z): ${posteriorCalibration.formattedResults.probHumanPercentage}`);
+  console.log(`• KEPUTUSAN FORENSIK AKHIR: %c[${posteriorCalibration.formattedResults.verdict}]`, 'color: #2563eb; font-weight: bold; font-size: 13px;');
+
+  console.log('%c[SISTEM PROTEKSI OTONOM MUTLAK & KILL-SWITCH MODUL TWIN]:', 'color: #b91c1c; font-weight: bold; font-size: 13px;');
+  console.log(`• Gerbang Mutlak: G = ${killSwitchTwin.gates.G} [g_layer=${killSwitchTwin.gates.g_layer}, g_rasio=${killSwitchTwin.gates.g_rasio}, g_gerak=${killSwitchTwin.gates.g_gerak}]`);
+  console.log(`• Formula Indeks: I_Twin = 100 · G · (0.45 · S_raw + 0.35 · S_vid + 0.20 · S_progres)`);
+  console.log(`• Nilai Indeks Kill-Switch (I_Twin): %c${killSwitchTwin.I_Twin.toFixed(2)}`, killSwitchTwin.gates.G === 0 ? 'color: #dc2626; font-weight: bold;' : 'color: #059669; font-weight: bold;');
+  console.log(`• Status Operasional: %c[${killSwitchTwin.status}]`, killSwitchTwin.gates.G === 0 ? 'color: #dc2626; font-weight: bold;' : 'color: #059669; font-weight: bold;');
+  if (killSwitchTwin.gates.G === 0) {
+    console.warn('• ALASAN AUTO-REJECT G=0:', killSwitchTwin.gates.diagnostics);
+  }
+  console.log(`• Durasi Total Komputasi Pipeline: ${hasil.metadata.executionTimeMs} ms`);
+
+  // Log verifikasi titik sampel (y=0, x=0)
+  const r0 = hasil.M_RGB.get(0, 0, 0);
+  const g0 = hasil.M_RGB.get(0, 0, 1);
+  const b0 = hasil.M_RGB.get(0, 0, 2);
+  const gray0 = hasil.M_Gray.get(0, 0);
+  console.log(`• Verifikasi Titik Spasial (0, 0): RGB=(${r0}, ${g0}, ${b0}) ⇒ Gray=${gray0.toFixed(4)}`);
+
+  return hasil;
+}
+
+// Pasang juga ke global window agar mudah diakses dari console atau script luar
+if (typeof window !== 'undefined') {
+  (window as unknown as { jalankanEngine?: typeof jalankanEngine }).jalankanEngine = jalankanEngine;
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'gallery' | 'upload'>('gallery');
+  const [dragActive, setDragActive] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successInfo, setSuccessInfo] = useState<ImageValidationInfo | null>(null);
+  const [forensicResult, setForensicResult] = useState<MathematicalEngineResult | null>(null);
+  const [isValidating, setIsValidating] = useState<boolean>(false);
+  const [showJournalModal, setShowJournalModal] = useState<boolean>(false);
+
+  // Storage and Gallery states
+  const [storedArtworks, setStoredArtworks] = useState<StoredArtwork[]>([]);
+  const [storageStats, setStorageStats] = useState<{ count: number; totalBytes: number; quotaBytes?: number; usageBytes?: number } | null>(null);
+  const [isGalleryLoading, setIsGalleryLoading] = useState<boolean>(false);
+  const [importResultNotification, setImportResultNotification] = useState<BatchImportResult | null>(null);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const batchImportInputRef = useRef<HTMLInputElement>(null);
+  const activePreviewUrlRef = useRef<string | null>(null);
+  const coordinatorRef = useRef<ImageProcessCoordinator | null>(null);
+
+  // Muat galeri dari IndexedDB internal
+  const loadGallery = useCallback(async () => {
+    setIsGalleryLoading(true);
+    try {
+      const [artworks, stats] = await Promise.all([getAllArtworks(), getStorageStats()]);
+      setStoredArtworks(artworks);
+      setStorageStats(stats);
+    } catch (err) {
+      console.warn('[STORAGE] Gagal memuat galeri:', err);
+    } finally {
+      setIsGalleryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGallery();
+  }, [loadGallery]);
+
+  // Inisialisasi koordinator proteksi konkurensi & state race condition
+  if (!coordinatorRef.current) {
+    coordinatorRef.current = new ImageProcessCoordinator({
+      runEngine: jalankanEngine,
+      onStateChange: (updates) => {
+        if ('errorMsg' in updates) setErrorMsg(updates.errorMsg ?? null);
+        if ('successInfo' in updates) setSuccessInfo(updates.successInfo ?? null);
+        if ('forensicResult' in updates) setForensicResult(updates.forensicResult ?? null);
+        if ('isValidating' in updates) setIsValidating(updates.isValidating ?? false);
+      },
+      onClearInput: () => {
+        if (inputRef.current) inputRef.current.value = '';
+      },
+    });
+  }
+
+  // Sinkronisasi activePreviewUrlRef untuk referensi preview aktif
+  activePreviewUrlRef.current = coordinatorRef.current.getActivePreviewUrl();
+
+  // Lifecycle cleanup ketika komponen di-unmount
+  useEffect(() => {
+    const coordinator = coordinatorRef.current;
+    return () => {
+      coordinator?.destroy();
+    };
+  }, []);
+
+  const processFile = useCallback((file: File) => {
+    // Jalankan pemeriksaan di engine
+    coordinatorRef.current?.processFile(file);
+
+    // Salin juga ke internal vault di background jika belum tersimpan
+    importSingleArtwork(file)
+      .then((res) => {
+        if (res.success) {
+          loadGallery();
+        }
+      })
+      .catch(() => {});
+  }, [loadGallery]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const handleBatchImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setIsGalleryLoading(true);
+      try {
+        const batchRes = await importBatchArtworks(files);
+        setImportResultNotification(batchRes);
+        await loadGallery();
+        setActiveTab('gallery');
+      } catch (err) {
+        console.error('[IMPORT ERROR]', err);
+      } finally {
+        setIsGalleryLoading(false);
+        if (batchImportInputRef.current) {
+          batchImportInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      if (files.length > 1) {
+        // Multi-file drop: alihkan ke batch import galeri
+        setIsGalleryLoading(true);
+        importBatchArtworks(files)
+          .then((res) => {
+            setImportResultNotification(res);
+            loadGallery();
+            setActiveTab('gallery');
+          })
+          .finally(() => setIsGalleryLoading(false));
+      } else {
+        // Single file drop: periksa langsung
+        processFile(files[0]);
+      }
+    }
+  };
+
+  const handleReset = useCallback(() => {
+    coordinatorRef.current?.reset();
+    loadGallery();
+  }, [loadGallery]);
+
+  const triggerBatchImport = () => {
+    batchImportInputRef.current?.click();
+  };
+  if (successInfo && forensicResult) {
+    return (
+      <main className="min-h-screen w-full bg-slate-100/80 p-3 sm:p-6 lg:p-8 flex flex-col items-center justify-start text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900">
+        <ForensicDashboard
+          result={forensicResult}
+          file={successInfo.file}
+          previewUrl={successInfo.previewUrl}
+          onReset={handleReset}
+        />
+      </main>
+    );
+  }
+
+  return (
+    <div className="min-h-screen w-full bg-slate-50 flex flex-col text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900">
+      {/* Hidden File Inputs */}
+      <input
+        ref={inputRef}
+        type="file"
+        id="image-file-input"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <input
+        ref={batchImportInputRef}
+        type="file"
+        multiple
+        id="batch-import-input"
+        accept="image/jpeg,image/png,image/webp,image/bmp,image/tiff,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif"
+        onChange={handleBatchImportChange}
+        className="hidden"
+      />
+
+      {/* Main Top Navigation Header */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Logo & Platform Badge */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center font-black tracking-wider shadow-sm text-sm">
+              VR
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 tracking-tight text-sm sm:text-base">
+                  VEROIA v5-Ultra
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  ISO/IEC 27037
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
+                Penyimpanan Internal & Galeri Karya Full HD (≥ 1920×1080)
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation View Switcher */}
+          <div className="inline-flex p-1 bg-slate-100/90 rounded-xl border border-slate-200 text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('gallery')}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                activeTab === 'gallery'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <HardDrive className="w-4 h-4" />
+              <span>Galeri Karya</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                activeTab === 'gallery' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {storedArtworks.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('upload')}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                activeTab === 'upload'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UploadCloud className="w-4 h-4" />
+              <span>Upload Cepat</span>
+            </button>
+          </div>
+
+          {/* Quick Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowJournalModal(true)}
+              title="Tabel Jurnal Ilmiah Formula Matematis"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-2xs transition-all cursor-pointer"
+            >
+              <BookOpen className="w-4 h-4 text-blue-600" />
+              <span className="hidden md:inline">Tabel Jurnal Formula</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={triggerBatchImport}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-xl shadow-xs transition-all cursor-pointer"
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span>PILIH FOTO</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Body */}
+      <main className="flex-1 flex flex-col">
+        {activeTab === 'gallery' ? (
+          <ArtworkGallery
+            artworks={storedArtworks}
+            onRefresh={loadGallery}
+            onExamineArtwork={processFile}
+            onTriggerImport={triggerBatchImport}
+            importResultNotification={importResultNotification}
+            onDismissNotification={() => setImportResultNotification(null)}
+            storageStats={storageStats}
+            isLoading={isGalleryLoading}
+          />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 my-auto">
+            <div className="w-full max-w-xl">
+              {/* Direct Upload Dropzone */}
+              <div
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                className={`relative overflow-hidden rounded-2xl border-2 transition-all duration-200 bg-white shadow-sm ${
+                  dragActive
+                    ? 'border-blue-500 bg-blue-50/50 scale-[1.01]'
+                    : errorMsg
+                    ? 'border-red-300 bg-red-50/20'
+                    : 'border-dashed border-slate-300 hover:border-slate-400'
+                }`}
+              >
+                <div className="p-8 sm:p-10 flex flex-col items-center text-center">
+                  {/* Icon Container */}
+                  <div
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 transition-transform duration-200 ${
+                      dragActive
+                        ? 'bg-blue-100 text-blue-600 scale-110'
+                        : errorMsg
+                        ? 'bg-red-100 text-red-600'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {isValidating ? (
+                      <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+                    ) : errorMsg ? (
+                      <AlertCircle className="w-8 h-8" />
+                    ) : (
+                      <UploadCloud className="w-8 h-8" />
+                    )}
+                  </div>
+
+                  {/* Title & Guidelines */}
+                  <h1 className="text-xl font-semibold text-slate-900 mb-1">
+                    Upload & Uji Forensik Cepat
+                  </h1>
+                  <p className="text-xs font-medium text-slate-500 tracking-wide uppercase mb-6">
+                    Resolusi minimum 1920 × 1080 px (Landscape) / 1080 × 1920 px (Portrait) / 1440 × 1440 px (Persegi)
+                  </p>
+
+                  {/* Primary Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    disabled={isValidating}
+                    className="inline-flex items-center justify-center px-6 py-3 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4 mr-2" />
+                    {isValidating ? 'Memproses Matriks & Forensik...' : 'Pilih File Gambar'}
+                  </button>
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    atau tarik & lepas gambar (satu atau beberapa) ke sini
+                  </p>
+
+                  {/* Error Message */}
+                  {errorMsg && (
+                    <div className="mt-5 w-full bg-red-50 border border-red-200 rounded-xl p-3.5 flex items-start gap-3 text-left animate-in fade-in duration-200">
+                      <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                      <div className="text-xs text-red-700 leading-relaxed font-medium">
+                        {errorMsg}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Switch to Gallery */}
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('gallery')}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-2xs transition-all cursor-pointer"
+                >
+                  <HardDrive className="w-4 h-4 text-blue-600" />
+                  <span>Buka Galeri Karya Full HD ({storedArtworks.length} tersimpan)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Journal Table Modal on Upload Page */}
+      {showJournalModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+          <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-auto overflow-hidden">
+            <div className="flex items-center justify-between p-4 bg-slate-900 text-white border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-bold">
+                  Pratinjau Format & Rumus Tabel Jurnal Ilmiah (IEEE / ISO 27037)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowJournalModal(false)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[80vh] overflow-y-auto p-4 sm:p-6">
+              <JournalFormulaTable previewMode={true} fileName="pratinjau_teoritis.png" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

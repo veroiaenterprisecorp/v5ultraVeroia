@@ -1,0 +1,959 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * DASHBOARD ANALISIS MULTI-DIMENSI
+ * =================================
+ * Menampilkan ringkasan indikator dan keluaran pipeline VEROIA.
+ * Label hasil bersifat indikatif dan bukan sertifikasi atau vonis forensik.
+ * 1. Status Gerbang Integritas: I_Twin & Gerbang G
+ * 2. Skor Indikatif Utama (belum terkalibrasi), z, S_raw_final
+ * 3. Pemetaan Visual: Grid 6 × 6 (36 Sel) & W_eff(x, y) dari 30.026 patch
+ * 4. Audit Kerajinan Tangan vs AI: Ψ_asym, Φ_grid, Ω_human
+ * 5. Deteksi Manifold & Difusi: LID(x; k) & H_Markov
+ * 6. Adaptasi Bobot Agen: Π_cond, Δ_var, w_eff,i
+ * 7. Informasi Buffer Citra dan Referensi Standar (ISO/IEC 27037:2012)
+ */
+
+import React, { useState } from 'react';
+import {
+  ShieldAlert,
+  ShieldCheck,
+  CheckCircle2,
+  AlertTriangle,
+  Grid,
+  Activity,
+  Layers,
+  FileCheck2,
+  Sliders,
+  Scale,
+  BrainCircuit,
+  Eye,
+  Info,
+  ChevronRight,
+  Maximize2,
+  BookOpen,
+  Table,
+  Copy,
+  RefreshCw,
+} from 'lucide-react';
+import { MathematicalEngineResult } from '../engine/matrixEngine';
+import { RegionalCell6x6 } from '../engine/adaptivePenalization';
+import JournalFormulaTable, { buildJournalRows, exportToMarkdown } from './JournalFormulaTable';
+
+interface ForensicDashboardProps {
+  result: MathematicalEngineResult;
+  file: File;
+  previewUrl: string;
+  onReset: () => void;
+}
+
+export default function ForensicDashboard({
+  result,
+  file,
+  previewUrl,
+  onReset,
+}: ForensicDashboardProps) {
+  const [activeTab, setActiveTab] = useState<number>(1);
+  const [selectedCell, setSelectedCell] = useState<RegionalCell6x6 | null>(
+    result.adaptiveBalancing.regionalGrid6x6[14] || result.adaptiveBalancing.regionalGrid6x6[0]
+  );
+  const [showOverlayOnImage, setShowOverlayOnImage] = useState<boolean>(true);
+  const [copyAllBannerNotice, setCopyAllBannerNotice] = useState<boolean>(false);
+
+  const handleQuickCopyAll = () => {
+    const rows = buildJournalRows(result);
+    const text = exportToMarkdown(rows, file.name, result);
+    navigator.clipboard.writeText(text);
+    setCopyAllBannerNotice(true);
+    setTimeout(() => setCopyAllBannerNotice(false), 3000);
+  };
+
+  const {
+    killSwitchTwin,
+    posteriorCalibration,
+    adaptiveBalancing,
+    cognitiveIntervention,
+    multiLID,
+    markovEntropy,
+    metadata,
+  } = result;
+
+  const isAutoReject = killSwitchTwin.gates.G === 0;
+  const isInvalidEvidence = posteriorCalibration.formattedResults.verdict === 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)';
+  const isAI = !isInvalidEvidence && result.tahap7Result.decisionCategory === 'GENERATOR_AI_SYNTHETIC';
+  const isNatural = !isInvalidEvidence && result.tahap7Result.decisionCategory === 'NATURAL_HUMAN_PHOTOGRAPHIC';
+  const isUncertain = !isInvalidEvidence && !isAI && !isNatural;
+  const isMultiLIDValid = multiLID.estimationStatus === 'VALID';
+
+  const tabs = [
+    { id: 1, title: 'Status Gerbang', icon: ShieldCheck, code: 'I_Twin & G' },
+    { id: 2, title: 'Skor Indikatif', icon: Scale, code: 'Skor indikatif' },
+    { id: 3, title: 'Pemetaan Visual', icon: Grid, code: 'Grid 6×6' },
+    { id: 4, title: 'Audit Tangan vs AI', icon: Eye, code: 'Ψ / Φ / Ω' },
+    { id: 5, title: 'Manifold & Difusi', icon: BrainCircuit, code: 'LID & H' },
+    { id: 6, title: 'Adaptasi Bobot', icon: Sliders, code: 'w_eff' },
+    { id: 7, title: 'Buffer & Standar', icon: FileCheck2, code: 'Referensi ISO' },
+    { id: 8, title: 'Tabel Jurnal Formula', icon: BookOpen, code: 'Jurnal & Salin' },
+  ];
+
+  const formatBytes = (bytes: number) => {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  return (
+    <div className="w-full max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300">
+      {/* Top Banner / Verdict Bar */}
+      <div
+        className={`rounded-2xl border p-5 sm:p-6 text-white shadow-lg transition-all ${
+          isAutoReject
+            ? 'bg-gradient-to-r from-red-950 via-red-900 to-rose-950 border-red-700/80'
+            : isInvalidEvidence
+            ? 'bg-gradient-to-r from-amber-950 via-yellow-950 to-orange-950 border-amber-600/80'
+            : isAI
+            ? 'bg-gradient-to-r from-rose-950 via-slate-900 to-slate-950 border-rose-800/60'
+            : isUncertain
+            ? 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-950 border-slate-600/60'
+            : 'bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-950 border-emerald-700/60'
+        }`}
+      >
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div
+              className={`p-3.5 rounded-2xl ${
+                isAutoReject
+                  ? 'bg-red-500/20 text-red-400 ring-2 ring-red-500/40'
+                  : isInvalidEvidence
+                  ? 'bg-amber-500/20 text-amber-400 ring-2 ring-amber-500/40'
+                  : isAI
+                  ? 'bg-rose-500/20 text-rose-400 ring-2 ring-rose-500/40'
+                  : isUncertain
+                  ? 'bg-slate-500/20 text-slate-300 ring-2 ring-slate-500/40'
+                  : 'bg-emerald-500/20 text-emerald-400 ring-2 ring-emerald-500/40'
+              }`}
+            >
+              {isAutoReject ? (
+                <ShieldAlert className="w-8 h-8" />
+              ) : isInvalidEvidence ? (
+                <AlertTriangle className="w-8 h-8" />
+              ) : isAI ? (
+                <AlertTriangle className="w-8 h-8" />
+              ) : isUncertain ? (
+                <Info className="w-8 h-8" />
+              ) : (
+                <CheckCircle2 className="w-8 h-8" />
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-xs uppercase font-mono font-bold tracking-wider px-2.5 py-0.5 rounded-full ${
+                    isAutoReject
+                      ? 'bg-red-500/30 text-red-200'
+                      : isInvalidEvidence
+                      ? 'bg-amber-500/30 text-amber-200'
+                      : isAI
+                      ? 'bg-rose-500/30 text-rose-200'
+                      : isUncertain
+                      ? 'bg-slate-500/30 text-slate-200'
+                      : 'bg-emerald-500/30 text-emerald-200'
+                  }`}
+                >
+                  {isAutoReject
+                    ? 'AUTO-REJECT (KILL-SWITCH)'
+                    : posteriorCalibration.formattedResults.verdict}
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  {metadata.width} × {metadata.height} px (dimensi berkas)
+                </span>
+              </div>
+
+              <h2 className="text-xl sm:text-2xl font-bold mt-1 tracking-tight text-white">
+                {isAutoReject
+                  ? 'Pemeriksaan Gerbang G Gagal: Perlu Tinjauan Berkas'
+                  : isInvalidEvidence
+                  ? 'Data Fitur Tidak Valid: Analisis Tidak Dapat Dilanjutkan'
+                  : isAI
+                  ? 'Indikasi pola sintetis — belum tervalidasi secara independen'
+                  : isNatural
+                  ? 'Indikasi karakteristik fotografi — belum tervalidasi secara independen'
+                  : 'Belum dapat disimpulkan — kalibrasi belum tervalidasi'}
+              </h2>
+
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+                {isAutoReject
+                  ? killSwitchTwin.action
+                  : isInvalidEvidence
+                  ? 'Fitur keluaran Stage 5 tidak valid. Sistem tidak menerbitkan kesimpulan klasifikasi.'
+                  : `Platt Scaling logit z = ${Number.isFinite(posteriorCalibration.z) ? posteriorCalibration.z.toFixed(3) : 'NaN'} | Indeks Modul Twin I_Twin = ${killSwitchTwin.I_Twin.toFixed(2)} | MultiLID = ${multiLID.meanMultiLID.toFixed(2)}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-center">
+            {/* Primary Master Copy All Button */}
+            <button
+              type="button"
+              onClick={handleQuickCopyAll}
+              title="Salin SEMUA formula dan hasil kalkulasi sekaligus ke clipboard"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-extrabold rounded-xl bg-emerald-400 hover:bg-emerald-300 active:bg-emerald-500 text-slate-950 shadow-md transition-all cursor-pointer whitespace-nowrap scale-[1.02]"
+            >
+              {copyAllBannerNotice ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                  <span>✓ SEMUA DISALIN!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 text-slate-950" />
+                  <span>SALIN SEMUA (COPY ALL)</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab(8);
+                const el = document.getElementById('journal-table-section');
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white shadow-sm border border-white/20 transition-all cursor-pointer whitespace-nowrap"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Buka Tabel Jurnal</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white backdrop-blur-sm border border-white/20 transition-all cursor-pointer whitespace-nowrap"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Periksa Gambar Berikutnya</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Forensic Grid: Preview & Controls */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left: Image Preview & 6x6 Heatmap Overlay (5 cols) */}
+        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5 font-mono">
+              <Eye className="w-3.5 h-3.5 text-blue-600" />
+              Preview Resolusi Asli Full HD+
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowOverlayOnImage(!showOverlayOnImage)}
+              className="text-[11px] px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors cursor-pointer"
+            >
+              {showOverlayOnImage ? 'Sembunyikan Grid 6×6' : 'Tampilkan Grid 6×6'}
+            </button>
+          </div>
+
+          {/* Canvas Wrapper */}
+          <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-slate-900 border border-slate-300 shadow-inner group">
+            <img
+              src={previewUrl}
+              alt={file.name}
+              className="w-full h-full object-contain"
+            />
+
+            {/* 6x6 Visual Heatmap Overlay */}
+            {showOverlayOnImage && (
+              <div className="absolute inset-0 grid grid-cols-6 grid-rows-6 p-0.5 gap-0.5 pointer-events-auto">
+                {adaptiveBalancing.regionalGrid6x6.map((cell) => {
+                  const isSelected = selectedCell?.cellId === cell.cellId;
+                  // Warna heatmap: hijau (alami) hingga merah (sintetis)
+                  const alpha = 0.25 + cell.anomalyIntensity * 0.45;
+                  const bgRgba =
+                    cell.anomalyIntensity >= 0.55
+                      ? `rgba(239, 68, 68, ${alpha})`
+                      : cell.anomalyIntensity >= 0.35
+                      ? `rgba(245, 158, 11, ${alpha})`
+                      : `rgba(16, 185, 129, ${alpha})`;
+
+                  return (
+                    <button
+                      key={cell.cellId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCell(cell);
+                        setActiveTab(3); // Langsung arahkan ke tab visual
+                      }}
+                      title={`${cell.label}: Anomali ${(cell.anomalyIntensity * 100).toFixed(0)}% (Π=${cell.pi_cond.toFixed(2)})`}
+                      style={{ backgroundColor: bgRgba }}
+                      className={`relative flex items-center justify-center text-[9px] font-mono font-bold transition-all border ${
+                        isSelected
+                          ? 'border-yellow-400 ring-2 ring-yellow-300 text-white z-10 scale-105 shadow-md'
+                          : 'border-white/20 text-white/90 hover:border-white hover:scale-102'
+                      } cursor-pointer`}
+                    >
+                      <span className="drop-shadow-sm">{cell.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Image & ISO Meta */}
+          <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1.5 border border-slate-200/80 font-mono">
+            <div className="flex justify-between text-slate-600">
+              <span className="text-slate-400">Berkas:</span>
+              <span className="font-medium text-slate-800 truncate max-w-[200px]" title={file.name}>
+                {file.name}
+              </span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span className="text-slate-400">Ukuran Bitstream:</span>
+              <span className="font-medium text-slate-800">{formatBytes(file.size)}</span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span className="text-slate-400">Referensi standar:</span>
+              <span className="font-semibold text-emerald-700">ISO/IEC 27037:2012</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: 7 Forensic Categories Dashboard (7 cols) */}
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+          {/* Tab Navigation */}
+          <div className="flex items-center overflow-x-auto border-b border-slate-200 bg-slate-50/70 p-1.5 gap-1 scrollbar-none">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-white text-blue-600 shadow-sm border border-slate-200/80 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                  <span>{tab.title}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tab Content Display */}
+          <div className="p-5 sm:p-6 min-h-[420px]">
+            {/* 1. STATUS GERBANG INTEGRITAS: I_Twin & Gerbang G */}
+            {activeTab === 1 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-blue-600" />
+                      1. Status Gerbang Integritas: I_Twin & Gerbang G
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Menampilkan hasil pemeriksaan gerbang internal. Auto-Reject menunjukkan gerbang sistem gagal; bukan penetapan manipulasi secara independen.
+                    </p>
+                  </div>
+                  <span
+                    className={`text-xs font-mono font-bold px-3 py-1 rounded-full ${
+                      isAutoReject
+                        ? 'bg-red-100 text-red-800 border border-red-200'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}
+                  >
+                    G = {killSwitchTwin.gates.G}
+                  </span>
+                </div>
+
+                {/* Formula Highlight Card */}
+                <div className="bg-slate-900 text-white rounded-xl p-4 font-mono text-xs space-y-1.5">
+                  <div className="text-slate-400 text-[11px] uppercase">Formulasi Kill-Switch Modul Twin:</div>
+                  <div className="text-emerald-400 font-semibold text-sm">
+                    I_Twin = 100 · G · (0.45 · S_raw + 0.35 · S_vid + 0.20 · S_progres)
+                  </div>
+                  <div className="text-slate-300">
+                    Aturan internal: G = g_layer · g_rasio · g_gerak ⇒ Jika G = 0 ⇒ I_Twin = 0 (Auto-Reject)
+                  </div>
+                </div>
+
+                {/* Score & Status Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase block">Indeks I_Twin</span>
+                    <span className="text-2xl font-bold font-mono text-slate-900">
+                      {killSwitchTwin.I_Twin.toFixed(2)}
+                    </span>
+                    <span className="text-xs text-slate-500 block mt-0.5">Skala [0, 100]</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase block">Status Sistem</span>
+                    <span
+                      className={`text-sm font-bold font-mono block mt-1 ${
+                        isAutoReject ? 'text-red-600' : 'text-emerald-600'
+                      }`}
+                    >
+                      {killSwitchTwin.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3 Absolute Gates Breakdown */}
+                <div className="space-y-2 pt-1">
+                  <span className="text-xs font-semibold text-slate-700 block">Status Tiga Gerbang Biner Mutlak:</span>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs bg-white">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${killSwitchTwin.gates.g_layer === 1 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <span className="font-mono font-medium text-slate-800">g_layer (Integritas Biner & Format)</span>
+                    </div>
+                    <span className={`font-mono font-semibold text-right ${killSwitchTwin.gates.g_layer === 1 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {killSwitchTwin.gates.diagnostics.layerReason}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs bg-white">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${killSwitchTwin.gates.g_rasio === 1 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <span className="font-mono font-medium text-slate-800">g_rasio (Resolusi Fisik Full HD+)</span>
+                    </div>
+                    <span className={`font-mono font-semibold text-right ${killSwitchTwin.gates.g_rasio === 1 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {killSwitchTwin.gates.diagnostics.rasioReason}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs bg-white">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${killSwitchTwin.gates.g_gerak === 1 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <span className="font-mono font-medium text-slate-800">g_gerak (Varians Gradien Spasial)</span>
+                    </div>
+                    <span className={`font-mono font-semibold text-right ${killSwitchTwin.gates.g_gerak === 1 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {killSwitchTwin.gates.diagnostics.gerakReason}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2. SKOR PROBABILITAS UTAMA: P(AI|z), z, S_raw_final */}
+            {activeTab === 2 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Scale className="w-5 h-5 text-blue-600" />
+                      2. Skor Indikatif Utama (belum terkalibrasi), z, S_raw_final
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Skor indikatif saat ini belum merupakan probabilitas terkalibrasi; parameter perlu diuji pada dataset independen.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Probability Bar */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <span className="text-xs font-mono text-slate-400 uppercase">Skor indikatif AI (belum terkalibrasi)</span>
+                      <div className="text-3xl font-extrabold font-mono text-rose-600">
+                        {posteriorCalibration.formattedResults.probAIPercentage}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-mono text-slate-400 uppercase">Skor komplemen (bukan probabilitas)</span>
+                      <div className="text-3xl font-extrabold font-mono text-emerald-600">
+                        {posteriorCalibration.formattedResults.probHumanPercentage}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dual Progress Bar */}
+                  <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden flex">
+                    <div
+                      style={{ width: `${Number.isFinite(posteriorCalibration.probabilityAI) ? posteriorCalibration.probabilityAI * 100 : 0}%` }}
+                      className="bg-rose-500 h-full transition-all duration-500"
+                    />
+                    <div
+                      style={{ width: `${Number.isFinite(posteriorCalibration.probabilityHuman) ? posteriorCalibration.probabilityHuman * 100 : 0}%` }}
+                      className="bg-emerald-500 h-full transition-all duration-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Mathematical Equation Card */}
+                <div className="bg-slate-900 text-white rounded-xl p-4 font-mono text-xs space-y-2">
+                  <div className="text-slate-400 text-[11px] uppercase">Pemetaan logistik indikatif — belum tervalidasi:</div>
+                  <div className="text-sky-400 font-semibold">
+                    P(AI | z) = 1 / [1 + exp(A · z + B)]
+                  </div>
+                  <div className="text-slate-300">
+                    Konstanta Empiris: A = {posteriorCalibration.plattParameters.A}, B = {posteriorCalibration.plattParameters.B}
+                  </div>
+                  <div className="text-slate-300">
+                    Logit z = ((S_raw_final / 100) - 0.5) × 3.6 × Q_damping = <span className="text-yellow-400 font-bold">{Number.isFinite(posteriorCalibration.z) ? posteriorCalibration.z.toFixed(4) : 'N/A (KORUP)'}</span>
+                  </div>
+                </div>
+
+                {/* Variables Grid */}
+                <div className="grid grid-cols-3 gap-2.5 text-xs font-mono">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-slate-400 block text-[10px]">S_raw (Awal)</span>
+                    <span className="text-base font-bold text-slate-800">{Number.isFinite(posteriorCalibration.S_raw) ? posteriorCalibration.S_raw.toFixed(2) : 'N/A'}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-slate-400 block text-[10px]">S_raw_final</span>
+                    <span className="text-base font-bold text-slate-800">{Number.isFinite(posteriorCalibration.S_raw_final) ? posteriorCalibration.S_raw_final.toFixed(2) : 'N/A'}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-slate-400 block text-[10px]">Q_damping</span>
+                    <span className="text-base font-bold text-slate-800">{Number.isFinite(posteriorCalibration.Q_damping) ? posteriorCalibration.Q_damping.toFixed(3) : 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 3. PEMETAAN VISUAL: Grid 6 × 6 (36 Sel) & W_eff(x, y) */}
+            {activeTab === 3 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Grid className="w-5 h-5 text-blue-600" />
+                      3. Pemetaan Visual: Grid 6 × 6 (36 Sel) & W_eff(x, y)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Menampilkan heatmap regional dari {(adaptiveBalancing?.totalMicroPatches ?? 29960).toLocaleString()} patch nyata tanpa bias spasial ganda.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-semibold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md border border-blue-200">
+                    {(adaptiveBalancing?.totalMicroPatches ?? 29960).toLocaleString()} Micro-Patches
+                  </span>
+                </div>
+
+                {/* 6x6 Matrix Selector Component */}
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-slate-700 block">Pilih Sel Regional (36 Sel Terkalibrasi):</span>
+                  <div className="grid grid-cols-6 gap-1.5 p-3 bg-slate-900 rounded-xl">
+                    {adaptiveBalancing.regionalGrid6x6.map((cell) => {
+                      const isSelected = selectedCell?.cellId === cell.cellId;
+                      const isHighAnomaly = cell.anomalyIntensity >= 0.55;
+                      const isMedAnomaly = cell.anomalyIntensity >= 0.35;
+
+                      return (
+                        <button
+                          key={cell.cellId}
+                          type="button"
+                          onClick={() => setSelectedCell(cell)}
+                          className={`p-2 rounded-lg text-center font-mono transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-yellow-400 text-slate-950 font-bold ring-2 ring-white scale-105'
+                              : isHighAnomaly
+                              ? 'bg-red-500/30 text-red-300 hover:bg-red-500/50'
+                              : isMedAnomaly
+                              ? 'bg-amber-500/30 text-amber-300 hover:bg-amber-500/50'
+                              : 'bg-emerald-500/30 text-emerald-300 hover:bg-emerald-500/50'
+                          }`}
+                        >
+                          <div className="text-[10px] font-bold">{cell.label}</div>
+                          <div className="text-[9px] opacity-80">{(cell.anomalyIntensity * 100).toFixed(0)}%</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Selected Cell Detail Card */}
+                {selectedCell && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 font-mono text-xs">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <span className="font-bold text-slate-800 text-sm">
+                        Inspeksi Sel {selectedCell.label} (Baris {selectedCell.row + 1}, Kolom {selectedCell.col + 1})
+                      </span>
+                      <span className="text-slate-500">
+                        Mewakili {selectedCell.microPatchesCount.toLocaleString()} micro-patches
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Varians σ²_k</span>
+                        <span className="font-semibold text-slate-800">{selectedCell.sigma2.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Deviasi ∆_var</span>
+                        <span className="font-semibold text-slate-800">{selectedCell.delta_var.toFixed(3)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Penalti Π_cond</span>
+                        <span className="font-semibold text-slate-800">{selectedCell.pi_cond.toFixed(3)}</span>
+                      </div>
+                    </div>
+
+                    {/* Local Weights Allocation */}
+                    <div className="pt-2 border-t border-slate-200/80">
+                      <span className="text-[11px] text-slate-500 block mb-1">
+                        Vektor Bobot Efektif Regional W_eff(x, y):
+                      </span>
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className="bg-white p-2 rounded-lg border border-slate-200">
+                          <span className="text-[10px] text-slate-400 block">Laplacian residual</span>
+                          <span className="font-bold text-slate-800">{selectedCell.weights.effective.percentages.CNN}</span>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-slate-200">
+                          <span className="text-[10px] text-slate-400 block">LBP</span>
+                          <span className="font-bold text-slate-800">{selectedCell.weights.effective.percentages.LBP}</span>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-slate-200">
+                          <span className="text-[10px] text-slate-400 block">MultiLID</span>
+                          <span className="font-bold text-slate-800">{selectedCell.weights.effective.percentages.MultiLID}</span>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-slate-200">
+                          <span className="text-[10px] text-slate-400 block">FFT</span>
+                          <span className="font-bold text-slate-800">{selectedCell.weights.effective.percentages.FFT}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 4. AUDIT KERAJINAN TANGAN VS AI: Ψ_asym, Φ_grid, Ω_human */}
+            {activeTab === 4 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Eye className="w-5 h-5 text-blue-600" />
+                      4. Audit Kerajinan Tangan vs AI: Ψ_asym, Φ_grid, Ω_human
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Membedakan fluktuasi tekanan kuas tangan manusia dari periodisitas kisi piksel mesin AI.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3 Metrics Cards */}
+                <div className="space-y-3 font-mono text-xs">
+                  {/* Psi Asym */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800 text-sm">
+                        Ψ_asym (Asimetri Fluktuasi Tekanan Kuas Tangan)
+                      </span>
+                      <span className="text-base font-extrabold text-blue-600">
+                        {cognitiveIntervention.psi_asym.value.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="text-slate-600 text-[11px]">
+                      Formula: (1 / N) · Σ | ∇M_local - µ_∇ | × Kurtosis(θ_stroke)
+                    </div>
+                    <div className="text-slate-500 text-[10px] pt-1 flex gap-4">
+                      <span>MAD Gradien: {cognitiveIntervention.psi_asym.gradientMAD.toFixed(3)}</span>
+                      <span>Kurtosis Goresan: {cognitiveIntervention.psi_asym.strokeKurtosis.toFixed(3)}</span>
+                      <span>Titik Sampel: {cognitiveIntervention.psi_asym.sampledPoints.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Phi Grid */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800 text-sm">
+                        Φ_grid (Periodisitas Kisi Matematika Mesin)
+                      </span>
+                      <span className="text-base font-extrabold text-rose-600">
+                        {cognitiveIntervention.phi_grid.value.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="text-slate-600 text-[11px]">
+                      {'Formula: Σ | P(f_r) - Baseline(1/f^α) |² × 1_{(P(f_r) > γ)}'}
+                    </div>
+                    <div className="text-slate-500 text-[10px] pt-1 flex gap-4">
+                      <span>Lonjakan Harmonik: {cognitiveIntervention.phi_grid.peakCount}</span>
+                      <span>Hukum Daya α: {cognitiveIntervention.phi_grid.alphaFitted}</span>
+                      <span>Threshold γ: 1.45 × Baseline</span>
+                    </div>
+                  </div>
+
+                  {/* Omega Human */}
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3.5 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-emerald-950 text-sm">
+                        Ω_human (Modulasi Peredam Kebisingan Bias Rajutan)
+                      </span>
+                      <span className="text-base font-extrabold text-emerald-700">
+                        {cognitiveIntervention.omega_human.value.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="text-emerald-800 text-[11px]">
+                      Formula (Alternative C): clamp(0.35, 1.0, 1.0 - 0.65 · Ψ_norm · (1.0 - Φ_norm))
+                    </div>
+                    <div className="text-emerald-700 text-[11px] pt-1 font-semibold">
+                      Klasifikasi: {cognitiveIntervention.omega_human.classification} ({cognitiveIntervention.omega_human.confidencePercentage})
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5. DETEKSI MANIFOLD & DIFUSI: LID(x; k) & H_Markov */}
+            {activeTab === 5 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <BrainCircuit className="w-5 h-5 text-blue-600" />
+                      5. Deteksi Manifold & Difusi: LID(x; k) & H_Markov
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Menampilkan estimasi LID dan statistik transisi tekstur. Baseline bersifat eksploratif; indikator ini tidak membuktikan kolaps manifold atau penggunaan VAE/difusi.
+                    </p>
+                  </div>
+                </div>
+
+                {/* MultiLID Card */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 font-mono text-xs space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase block">Local Intrinsic Dimensionality (MultiLID)</span>
+                      <span className="text-2xl font-bold text-slate-900">{isMultiLIDValid ? multiLID.meanMultiLID.toFixed(2) : 'N/A'}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 uppercase block">Baseline eksploratif (belum tervalidasi)</span>
+                      <span className="text-2xl font-bold text-emerald-600">~{multiLID.naturalBaseline.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-slate-600 text-[11px]">
+                    Formula: LID(x; k) = - [ (1 / k) · Σ ln( r_i(x) / r_k(x) ) ]^(-1)
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-slate-700">
+                    <span>Status: <strong className={isMultiLIDValid ? 'text-slate-700' : 'text-amber-600'}>{multiLID.manifoldState}</strong></span>
+                    <span>Rasio deviasi: {isMultiLIDValid ? (multiLID.manifoldCollapseRatio * 100).toFixed(1) + '%' : 'N/A'}</span>
+                  </div>
+
+                  {/* k-scales */}
+                  <div className="flex gap-2 pt-1 text-[10px] text-slate-500">
+                    {multiLID.scales.map((s) => (
+                      <span key={s.k} className="bg-white px-2 py-0.5 rounded border border-slate-200">
+                        k={s.k}: LID {s.lid.toFixed(2)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Markov Entropy Card */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 font-mono text-xs space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase block">Entropi Markov 2D (H_Markov)</span>
+                      <span className="text-2xl font-bold text-slate-900">{markovEntropy.h_markov.toFixed(3)} bit</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 uppercase block">Indeks Heuristik Transisi Tekstur</span>
+                      <span className="text-2xl font-bold text-rose-600">{(markovEntropy.vaeJitterIndex * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+
+                  <div className="text-slate-600 text-[11px]">
+                    Formula: H_Markov = - Σ_i Σ_j P(x_i, x_j) · log_2( P(x_j | x_i) )
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-slate-700">
+                    <span>Interpretasi heuristik: <strong className={markovEntropy.h_markov >= 3.2 ? 'text-rose-600' : 'text-emerald-600'}>{markovEntropy.transitionSignature}</strong></span>
+                    <span>Pasangan: {markovEntropy.evaluatedPairs.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 6. ADAPTASI BOBOT AGEN: Π_cond, Δ_var, w_eff,i */}
+            {activeTab === 6 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Sliders className="w-5 h-5 text-blue-600" />
+                      6. Adaptasi Bobot Agen: Π_cond, Δ_var, w_eff,i
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Menampilkan transparansi realokasi bobot residual Laplacian (legacy CNN), LBP, MultiLID, dan FFT hingga 100.0%.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md border border-emerald-200">
+                    Σ w_eff ≡ 100.0%
+                  </span>
+                </div>
+
+                {/* Parameter Highlights */}
+                <div className="grid grid-cols-2 gap-3 font-mono text-xs">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-slate-400 block text-[10px]">Multiplier Penalti (Π_cond)</span>
+                    <span className="text-lg font-bold text-slate-900">{adaptiveBalancing.global_pi_cond.toFixed(4)}</span>
+                    <span className="text-[10px] text-slate-500 block">Rentang clamp [0.18, 1.0]</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-slate-400 block text-[10px]">Varians Laplacian (Λ_global)</span>
+                    <span className="text-lg font-bold text-slate-900">{adaptiveBalancing.lambda_global.toFixed(4)}</span>
+                    <span className="text-[10px] text-slate-500 block">Operator ∇²I Spasial</span>
+                  </div>
+                </div>
+
+                {/* Calibrated Effective Weights Progress */}
+                <div className="space-y-3 pt-2 font-mono text-xs">
+                  <span className="font-semibold text-slate-700 block">Distribusi Realokasi Bobot Efektif (w_eff,i):</span>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span>w_eff,residual Laplacian (legacy CNN)</span>
+                      <span className="font-bold">{adaptiveBalancing.global_weights.effective.percentages.CNN}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: adaptiveBalancing.global_weights.effective.percentages.CNN }}
+                        className="bg-blue-600 h-full rounded-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span>w_eff,LBP (Tekstur Mikro)</span>
+                      <span className="font-bold">{adaptiveBalancing.global_weights.effective.percentages.LBP}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: adaptiveBalancing.global_weights.effective.percentages.LBP }}
+                        className="bg-purple-600 h-full rounded-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span>w_eff,MultiLID (Topologi Manifold)</span>
+                      <span className="font-bold">{adaptiveBalancing.global_weights.effective.percentages.MultiLID}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: adaptiveBalancing.global_weights.effective.percentages.MultiLID }}
+                        className="bg-amber-600 h-full rounded-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span>w_eff,FFT (Frekuensi Tinggi Terpenalti)</span>
+                      <span className="font-bold">{adaptiveBalancing.global_weights.effective.percentages.FFT}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: adaptiveBalancing.global_weights.effective.percentages.FFT }}
+                        className="bg-rose-600 h-full rounded-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 7. PRESERVASI BUKTI HUKUM: M_RGB (uint8) & M_Gray (float32) (ISO/IEC 27037:2012) */}
+            {activeTab === 7 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <FileCheck2 className="w-5 h-5 text-emerald-600" />
+                      7. Informasi Buffer Citra & Referensi Standar
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Menampilkan dimensi dan ukuran buffer yang digunakan oleh pipeline. Tampilan ini bukan audit preservasi, sertifikasi, atau bukti kepatuhan ISO/IEC 27037:2012.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-amber-100 text-amber-800 px-3 py-1 rounded-full border border-amber-300">
+                    STATUS SERTIFIKASI: TIDAK DINILAI
+                  </span>
+                </div>
+
+                {/* Reference Standard Information Card */}
+                <div className="bg-slate-900 text-white rounded-xl p-4 font-mono text-xs space-y-2">
+                  <div className="text-emerald-400 font-bold uppercase tracking-wider text-[11px]">
+                    Referensi standar (bukan sertifikasi):
+                  </div>
+                  <div className="text-slate-300">
+                    Standar Acuan: <strong>ISO/IEC 27037:2012 (Guidelines for identification, collection, acquisition and preservation of digital evidence)</strong>
+                  </div>
+                  <div className="text-slate-400 text-[11px]">
+                    Keterangan: ukuran buffer dan bentuk matriks ditampilkan sebagai informasi teknis. Dashboard ini tidak memverifikasi seluruh tahapan akuisisi, transformasi, penyimpanan, hash, atau chain of custody yang diperlukan untuk menyatakan kepatuhan standar.
+                  </div>
+                </div>
+
+                {/* Matrix Buffer Details */}
+                <div className="grid grid-cols-2 gap-3 font-mono text-xs">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1">
+                    <span className="text-slate-400 text-[10px] uppercase block">Matriks RGB 3D (uint8)</span>
+                    <span className="text-sm font-bold text-slate-800 block">M_RGB ∈ ℝ^(H × W × 3)</span>
+                    <span className="text-slate-600 block">Shape: [{result.M_RGB.shape.join(', ')}]</span>
+                    <span className="text-slate-500 block">Ukuran Buffer: {formatBytes(result.M_RGB.data.byteLength)}</span>
+                    <span className="text-emerald-600 font-semibold text-[10px] block">Rentang nilai buffer: [0, 255]</span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1">
+                    <span className="text-slate-400 text-[10px] uppercase block">Matriks Grayscale 2D (float32)</span>
+                    <span className="text-sm font-bold text-slate-800 block">M_Gray ∈ ℝ^(H × W)</span>
+                    <span className="text-slate-600 block">Shape: [{result.M_Gray.shape.join(', ')}]</span>
+                    <span className="text-slate-500 block">Ukuran Buffer: {formatBytes(result.M_Gray.data.byteLength)}</span>
+                    <span className="text-emerald-600 font-semibold text-[10px] block">Luminansi ITU-R BT.601</span>
+                  </div>
+                </div>
+
+                {/* Forensic Checksum & Audit Trail */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono space-y-1">
+                  <div className="text-slate-500 flex justify-between">
+                    <span>Total Piksel (metadata pipeline):</span>
+                    <span className="font-bold text-slate-800">{metadata.totalPixels.toLocaleString()} piksel</span>
+                  </div>
+                  <div className="text-slate-500 flex justify-between">
+                    <span>Durasi Komputasi Bitstream:</span>
+                    <span className="font-bold text-slate-800">{metadata.executionTimeMs} ms</span>
+                  </div>
+                  <div className="text-slate-500 flex justify-between">
+                    <span>Status Chain of Custody:</span>
+                    <span className="font-semibold text-amber-700">Tidak diverifikasi oleh dashboard</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 8. TABEL JURNAL FORMULA & HASIL LENGKAP */}
+            {activeTab === 8 && (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                <JournalFormulaTable
+                  result={result}
+                  fileName={file.name}
+                  fileSize={file.size}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Dedicated Full-Width Journal Table Section */}
+      <section id="journal-table-section" className="w-full pt-2">
+        <JournalFormulaTable
+          result={result}
+          fileName={file.name}
+          fileSize={file.size}
+        />
+      </section>
+    </div>
+  );
+}

@@ -1,0 +1,399 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * ESTIMATOR LOCAL INTRINSIC DIMENSIONALITY (MultiLID)
+ * ====================================================
+ * Domain: High-Dimensional Manifold Topology & Subspace Compression
+ * Reference: Maximum Likelihood Estimator of Intrinsic Dimensionality (Levina-Bickel / Amsaleg-Houle)
+ *
+ * Teori:
+ * Hipotesis historis VEROIA mengaitkan generator AI dengan perubahan dimensi manifold lokal.
+ * Hubungan tersebut belum dibuktikan pada dataset ground-truth yang tersedia dalam proyek ini;
+ * LID harus diperlakukan sebagai metrik geometri eksploratif, bukan penentu asal gambar.
+ *
+ * Formulasi Estimator LID:
+ * LID(x; k) = - [ (1 / k) · Σ_{i=1}^k ln( r_i(x) / r_k(x) ) ]^(-1)
+ * Di mana:
+ * - r_i(x) adalah jarak Euclidean titik x ke tetangga terdekat ke-i (r_1 ≤ r_2 ≤ ... ≤ r_k)
+ * - r_k(x) adalah jarak ke tetangga ke-k (radius bola lokal penutup)
+ */
+
+import { MatrixGrayscale2D } from './matrixEngine';
+import { clamp } from './adaptivePenalization';
+
+export interface MultiLIDResult {
+  /** Rata-rata estimasi MultiLID pada berbagai skala tetangga k */
+  meanMultiLID: number;
+  /** Nilai baseline manifold alami pembanding */
+  naturalBaseline: 22.40;
+  /** Deviasi/Rasio Kolaps Manifold: (22.40 - LID) / 22.40 */
+  manifoldCollapseRatio: number;
+  /** Status integritas topologi manifold */
+  manifoldState:
+    | 'Dimensi relatif tinggi (heuristik)'
+    | 'Dimensi relatif rendah (heuristik)'
+    | 'Batas Ambang Moderat'
+    | 'Tidak cukup data untuk estimasi'
+    | 'Data numerik tidak valid'
+    | 'Stabil Alami (Natural High-Rank)'
+    | 'Kolaps Manifold AI (Rigid Low-Rank Compression)';
+  /** Detail estimasi per skala k yang diuji (e.g. k = 10, 20, 32, 40) */
+  scales: Array<{
+    k: number;
+    lid: number;
+  }>;
+  /** Jumlah titik sampel representasi sub-ruang tinggi */
+  sampledSubspacePoints: number;
+  /** Dimensi embedding lokal (panjang vektor patch D) */
+  embeddingDimension: number;
+  /** Status estimasi internal untuk membedakan estimasi valid vs fallback/guard (ISO/IEC 27037:2012) */
+  estimationStatus?:
+    | 'VALID'
+    | 'INSUFFICIENT_SAMPLES'
+    | 'COLLAPSED_IDENTICAL'
+    | 'NUMERICAL_INVALID';
+  /** Jumlah titik sampel valid dengan radius bola penutup positif */
+  validSubspacePoints?: number;
+}
+
+/**
+ * Menghitung Local Intrinsic Dimensionality (LID) untuk satu titik x terhadap tetangga terurutnya.
+ *
+ * =========================================================================================
+ * VERIFIKASI MATEMATIS & DOKUMENTASI KONVENSI INDEKS (MICRO REPAIR 05.11):
+ * =========================================================================================
+ * 1. Konvensi Array Jarak:
+ *    - sortedDistances[0] = 0.0 (Self-distance titik sampel ke dirinya sendiri, r_0 = 0).
+ *    - sortedDistances[1] = r_1 (Jarak ke tetangga terdekat ke-1).
+ *    - sortedDistances[k] = r_k (Jarak ke tetangga terdekat ke-k / radius bola lokal penutup B(x, r_k)).
+ *
+ * 2. Perilaku Loop & Suku Logaritma:
+ *    - Loop berjalan untuk i = 1 sampai k.
+ *    - Pada i = k, r_i = r_k, sehingga ratio = 1.0 dan ln(1.0) = 0.0.
+ *    - Suku ke-k menyumbang nilai tepat 0 ke sumLog:
+ *      Σ_{i=1}^k ln(r_i / r_k) ≡ Σ_{i=1}^{k-1} ln(r_i / r_k) + 0.
+ *
+ * 3. Konvensi Estimator Denominator (Amsaleg-Houle vs Levina-Bickel):
+ *    - Denominator yang digunakan adalah k:
+ *      LID_Amsaleg_Houle(x; k) = - [ (1 / k) · Σ_{i=1}^k ln( r_i(x) / r_k(x) ) ]^(-1)
+ *    - Levina-Bickel (2004) menggunakan (k - 1) untuk unbiasing proses Poisson sampel terbatas:
+ *      LID_Levina_Bickel(x; k) = - [ (1 / (k - 1)) · Σ_{i=1}^{k-1} ln( r_i(x) / r_k(x) ) ]^(-1)
+ *    - Hubungan antar-konvensi: LID_Amsaleg_Houle = [k / (k - 1)] · LID_Levina_Bickel.
+ *    - Nilai baseline 22.40 tercantum pada implementasi lama, tetapi data kalibrasi empirisnya tidak
+ *      tersedia dalam proyek ini. Angka tersebut dipertahankan hanya untuk kompatibilitas dan tidak
+ *      boleh dianggap baseline universal atau bukti keaslian.
+ *
+ * 4. Penanganan Titik Identik, Zero-Distance & Spherical Boundary:
+ *    - Bila r_k <= 1e-7 (ruang kolaps sempurna / titik bertumpuk): mengembalikan 1.0.
+ *    - Bila r_i / r_k mendekati nol (titik duplikat spasial): dijepit oleh eps = 1e-7 (ln ≈ -16.118),
+ *      secara teori merefleksikan kolaps manifold lokal kuat tanpa divergensi numerik ke -Infinity.
+ *    - Bila seluruh tetangga berada di kulit bola (r_i ≈ r_k): |avgLog| < 1e-6, dibatasi atas 50.0.
+ *    - Penjepit bawah: Math.max(0.5, lid) menjamin output selalu positif dan finite.
+ */
+export function hitungLIDPoint(
+  sortedDistances: Float32Array,
+  k: number
+): number {
+  if (k <= 1 || sortedDistances.length <= k) return 0;
+
+  const r_k = sortedDistances[k];
+
+  if (r_k <= 1e-7) {
+    // Ruang terdegradasi total (semua titik bertumpuk identik)
+    return 1.0;
+  }
+
+  let sumLog = 0;
+  const eps = 1e-7;
+
+  for (let i = 1; i <= k; i++) {
+    const r_i = sortedDistances[i];
+    // Rasio jarak r_i / r_k ∈ [0, 1]
+    const ratio = Math.max(eps, Math.min(1.0, r_i / r_k));
+    sumLog += Math.log(ratio);
+  }
+
+  const avgLog = sumLog / k;
+
+  if (Math.abs(avgLog) < 1e-6) {
+    return 50.0;
+  }
+
+  // LID(x; k) = -1 / avgLog
+  const lid = -1.0 / avgLog;
+  return Math.max(0.5, lid);
+}
+
+/**
+ * Estimator Multi-Scale Local Intrinsic Dimensionality (MultiLID):
+ * Mengekstrak manifold lokal dalam ruang representasi tinggi R^D (vektor patch 8x8, D=64),
+ * membangun matriks jarak tetangga terdekat, dan menghitung MultiLID secara menyeluruh.
+ *
+ * =========================================================================================
+ * PEMISAHAN JALUR FORENSIK (CONTROLLED REPAIR 01):
+ * =========================================================================================
+ * Jalur guard/fallback TIDAK BOLEH disamakan dengan bukti anomali:
+ * 1. VALID: Titik sampel memiliki variasi dan radius tetangga r_k > 1e-7.
+ * 2. INSUFFICIENT_SAMPLES: Sampel titik representasi N <= max(k) (e.g. citra kecil).
+ *    22.40 hanya placeholder kompatibilitas; tidak boleh dianggap pengukuran atau bukti natural.
+ * 3. COLLAPSED_IDENTICAL: Citra polos, gradien linier, atau seluruh vektor patch identik
+ *    (tidak ada variasi spasial / r_k <= 1e-7). Ketiadaan variasi tidak cukup untuk mengestimasi LID
+ *    dan bukan bukti foto alami maupun AI. Status harus tetap tidak cukup data.
+ * 4. NUMERICAL_INVALID: Proteksi data non-finite (NaN / Infinity); status data tidak valid, bukan nilai baseline alami.
+ */
+export function evaluasiMultiLID(
+  M_Gray: MatrixGrayscale2D,
+  kScales: number[] = [12, 20, 32, 44]
+): MultiLIDResult {
+  const { width, height, data } = M_Gray;
+  const naturalBaseline = 22.40;
+
+  // Dimensi patch spasial D = PATCH_SIZE x PATCH_SIZE
+  const PATCH_SIZE = 8;
+  const D = PATCH_SIZE * PATCH_SIZE;
+
+  // 1. Guard Citra & Dimensi Minimum
+  if (width < PATCH_SIZE || height < PATCH_SIZE) {
+    return {
+      meanMultiLID: naturalBaseline,
+      naturalBaseline,
+      manifoldCollapseRatio: 0,
+      manifoldState: 'Tidak cukup data untuk estimasi',
+      scales: kScales.map((k) => ({ k, lid: naturalBaseline })),
+      sampledSubspacePoints: 0,
+      embeddingDimension: D,
+      estimationStatus: 'INSUFFICIENT_SAMPLES',
+      validSubspacePoints: 0,
+    };
+  }
+
+  // Sampling grid titik representatif pada bidang spasial Full HD
+  const stepY = Math.max(16, Math.floor((height - PATCH_SIZE) / 18));
+  const stepX = Math.max(16, Math.floor((width - PATCH_SIZE) / 24));
+
+  const vectors: Float32Array[] = [];
+  let totalPatchVariance = 0;
+  let hasNonFinitePixel = false;
+
+  for (let y = 0; y <= height - PATCH_SIZE; y += stepY) {
+    for (let x = 0; x <= width - PATCH_SIZE; x += stepX) {
+      const vec = new Float32Array(D);
+      let idx = 0;
+      let sum = 0;
+      let sumSq = 0;
+
+      for (let py = 0; py < PATCH_SIZE; py++) {
+        const rowOffset = (y + py) * width;
+
+        for (let px = 0; px < PATCH_SIZE; px++) {
+          const val = data[rowOffset + x + px];
+
+          if (!Number.isFinite(val)) {
+            hasNonFinitePixel = true;
+          }
+
+          vec[idx++] = val;
+          sum += val;
+          sumSq += val * val;
+        }
+      }
+
+      // Normalisasi Z-score lokal vektor fitur (agar invarian terhadap pencahayaan global)
+      const mean = sum / D;
+      const patchVariance = (sumSq / D) - (mean * mean);
+
+      totalPatchVariance += Math.max(0, patchVariance);
+
+      const std = Math.sqrt(Math.max(1e-4, patchVariance));
+
+      for (let i = 0; i < D; i++) {
+        const normalized = (vec[i] - mean) / std;
+        vec[i] = Number.isFinite(normalized) ? normalized : 0.0;
+      }
+
+      vectors.push(vec);
+    }
+  }
+
+  // Guard Integritas Numerik
+  if (hasNonFinitePixel) {
+    return {
+      meanMultiLID: naturalBaseline,
+      naturalBaseline,
+      manifoldCollapseRatio: 0,
+      manifoldState: 'Data numerik tidak valid',
+      scales: kScales.map((k) => ({ k, lid: naturalBaseline })),
+      sampledSubspacePoints: vectors.length,
+      embeddingDimension: D,
+      estimationStatus: 'NUMERICAL_INVALID',
+      validSubspacePoints: 0,
+    };
+  }
+
+  const N = vectors.length;
+  const maxK = Math.max(...kScales);
+
+  // 2. Guard Sampel Tidak Mencukupi (N <= maxK)
+  if (N <= maxK) {
+    return {
+      meanMultiLID: naturalBaseline,
+      naturalBaseline,
+      manifoldCollapseRatio: 0,
+      manifoldState: 'Tidak cukup data untuk estimasi',
+      scales: kScales.map((k) => ({ k, lid: naturalBaseline })),
+      sampledSubspacePoints: N,
+      embeddingDimension: D,
+      estimationStatus: 'INSUFFICIENT_SAMPLES',
+      validSubspacePoints: 0,
+    };
+  }
+
+  // Hitung matriks jarak Euclidean terurut untuk setiap titik representasi
+  const lidAccumulators = new Float64Array(kScales.length);
+  const validCounts = new Uint32Array(kScales.length);
+  let pointsWithPositiveRadius = 0;
+
+  for (let i = 0; i < N; i++) {
+    const vi = vectors[i];
+
+    // Jarak dari titik i ke seluruh titik j
+    const dists = new Float32Array(N);
+
+    for (let j = 0; j < N; j++) {
+      if (i === j) {
+        dists[j] = 0;
+        continue;
+      }
+
+      const vj = vectors[j];
+      let dSum = 0;
+
+      for (let d = 0; d < D; d++) {
+        const diff = vi[d] - vj[d];
+        dSum += diff * diff;
+      }
+
+      dists[j] = Math.sqrt(dSum);
+    }
+
+    // Urutkan jarak: r_1 ≤ r_2 ≤ ... ≤ r_k
+    dists.sort();
+
+    // Periksa apakah bola lokal penutup memiliki radius positif (bukan titik identik/kolaps)
+    const maxRadius = dists[maxK];
+
+    if (maxRadius > 1e-7) {
+      pointsWithPositiveRadius++;
+    }
+
+    // Hitung LID pada setiap skala k untuk titik yang memiliki radius terdefinisi
+    for (let s = 0; s < kScales.length; s++) {
+      const k = kScales[s];
+      const r_k = dists[k];
+
+      if (r_k > 1e-7) {
+        const lid_i = hitungLIDPoint(dists, k);
+
+        if (Number.isFinite(lid_i)) {
+          lidAccumulators[s] += lid_i;
+          validCounts[s]++;
+        }
+      }
+    }
+  }
+
+  // 3. Evaluasi Kondisi Kolaps Identik (Citra Polos, Gradien Linier, atau Seluruh Vektor Bertumpuk)
+  // Jika tidak ada titik dengan radius positif (seluruh r_k <= 1e-7) atau varians total mendekati nol:
+  // Kondisi ini adalah degenerasi ketiadaan variasi spasial, BUKAN bukti anomali manifold AI!
+  if (pointsWithPositiveRadius === 0 || totalPatchVariance < 1e-6) {
+    return {
+      meanMultiLID: naturalBaseline,
+      naturalBaseline,
+      manifoldCollapseRatio: 0,
+      manifoldState: 'Tidak cukup data untuk estimasi',
+      scales: kScales.map((k) => ({ k, lid: naturalBaseline })),
+      sampledSubspacePoints: N,
+      embeddingDimension: D,
+      estimationStatus: 'COLLAPSED_IDENTICAL',
+      validSubspacePoints: 0,
+    };
+  }
+
+  // Jika titik valid ada tetapi kurang dari maxK untuk estimasi manifold yang andal
+  if (pointsWithPositiveRadius < maxK) {
+    return {
+      meanMultiLID: naturalBaseline,
+      naturalBaseline,
+      manifoldCollapseRatio: 0,
+      manifoldState: 'Tidak cukup data untuk estimasi',
+      scales: kScales.map((k) => ({ k, lid: naturalBaseline })),
+      sampledSubspacePoints: N,
+      embeddingDimension: D,
+      estimationStatus: 'INSUFFICIENT_SAMPLES',
+      validSubspacePoints: pointsWithPositiveRadius,
+    };
+  }
+
+  // 4. Estimasi LID Valid
+  const scaleResults: Array<{ k: number; lid: number }> = [];
+  let sumAllLid = 0;
+
+  for (let s = 0; s < kScales.length; s++) {
+    const k = kScales[s];
+    const count = validCounts[s];
+
+    const avgScaleLid =
+      count > 0 ? lidAccumulators[s] / count : naturalBaseline;
+
+    const finalScaleLid = Number.isFinite(avgScaleLid)
+      ? avgScaleLid
+      : naturalBaseline;
+
+    scaleResults.push({
+      k,
+      lid: Math.round(finalScaleLid * 100) / 100,
+    });
+
+    sumAllLid += finalScaleLid;
+  }
+
+  const rawMean = sumAllLid / kScales.length;
+
+  const meanMultiLID = Number.isFinite(rawMean)
+    ? Math.round(rawMean * 100) / 100
+    : naturalBaseline;
+
+  // Rasio Kolaps Manifold: seberapa jauh dimensi lokal tertekan di bawah baseline ~22.40
+  const collapseRatio = Math.max(
+    0,
+    (naturalBaseline - meanMultiLID) / naturalBaseline
+  );
+
+  let manifoldState:
+    | 'Dimensi relatif tinggi (heuristik)'
+    | 'Dimensi relatif rendah (heuristik)'
+    | 'Batas Ambang Moderat'
+    | 'Tidak cukup data untuk estimasi'
+    | 'Data numerik tidak valid';
+
+  if (meanMultiLID >= 19.50) {
+    manifoldState = 'Dimensi relatif tinggi (heuristik)';
+  } else if (meanMultiLID <= 15.00) {
+    manifoldState = 'Dimensi relatif rendah (heuristik)';
+  } else {
+    manifoldState = 'Batas Ambang Moderat';
+  }
+
+  return {
+    meanMultiLID,
+    naturalBaseline,
+    manifoldCollapseRatio: Math.round(collapseRatio * 1000) / 1000,
+    manifoldState,
+    scales: scaleResults,
+    sampledSubspacePoints: N,
+    embeddingDimension: D,
+    estimationStatus: 'VALID',
+    validSubspacePoints: pointsWithPositiveRadius,
+  };
+}

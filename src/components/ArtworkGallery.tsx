@@ -1,0 +1,793 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * VEROIA v5-Ultra — FULL HD ARTWORK GALLERY & VAULT COMPONENT
+ * ============================================================
+ * Komponen: Tampilan Galeri Internal Berkinerja Tinggi & Hemat Memori
+ * Standar: ISO/IEC 27037:2012
+ * 
+ * Fitur Utama:
+ * 1. Thumbnail Ringan & Lazy Loading (skala 320px, proteksi memori perangkat PC/Android).
+ * 2. Visualisasi Metadata Lengkap: Nama file, Resolusi Aktual ($W \times H$), Format, Ukuran, Tanggal.
+ * 3. Pencarian Berdasarkan Nama & Filter Orientasi (Semua, Landscape, Portrait, Persegi, Panorama).
+ * 4. Pengurutan Multidimensi: Tanggal (Terbaru/Terlama), Nama (A-Z/Z-A), Resolusi (Tertinggi/Terendah), Ukuran.
+ * 5. Seleksi Tunggal & Jamak (Batch Multi-Select) dengan Aksi Massal (Hapus Terpilih).
+ * 6. Eksekusi Langsung ke Engine Forensik VEROIA (Forwarding Blob asli ke Pipeline Tanpa Kompresi).
+ * 7. Dialog Detail/Inspeksi Teknis Forensik (SHA-256 Hash, Rasio Aspek, Info Ukuran).
+ * 8. Dialog Laporan Hasil Batch Import Transparan (Sukses, Duplikat, Format Ditolak, Resolusi Ditolak).
+ */
+
+import React, { useState, useMemo, useRef } from 'react';
+import {
+  Image as ImageIcon,
+  Search,
+  Trash2,
+  CheckSquare,
+  Square,
+  ArrowUpDown,
+  Play,
+  Eye,
+  X,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  HardDrive,
+  RefreshCw,
+  Sparkles,
+  Maximize2,
+  Calendar,
+  FileText,
+  Copy,
+} from 'lucide-react';
+import {
+  StoredArtwork,
+  BatchImportResult,
+  deleteArtwork,
+  deleteMultipleArtworks,
+} from '../storage/internalStorage';
+
+interface ArtworkGalleryProps {
+  artworks: StoredArtwork[];
+  onRefresh: () => void;
+  onExamineArtwork: (file: File) => void;
+  importResultNotification?: BatchImportResult | null;
+  onDismissNotification?: () => void;
+  storageStats?: { count: number; totalBytes: number; quotaBytes?: number; usageBytes?: number } | null;
+  isLoading?: boolean;
+}
+
+type SortField = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc' | 'resolution_desc' | 'resolution_asc' | 'size_desc' | 'size_asc';
+type FilterOrientation = 'all' | 'landscape' | 'portrait' | 'square' | 'panorama';
+
+export default function ArtworkGallery({
+  artworks,
+  onRefresh,
+  onExamineArtwork,
+  importResultNotification,
+  onDismissNotification,
+  storageStats,
+  isLoading = false,
+}: ArtworkGalleryProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<SortField>('date_desc');
+  const [orientationFilter, setOrientationFilter] = useState<FilterOrientation>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [inspectedArtwork, setInspectedArtwork] = useState<StoredArtwork | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [copiedHash, setCopiedHash] = useState(false);
+
+  // Format ukuran byte ke teks yang mudah dibaca
+  const formatBytes = (bytes: number): string => {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  // Format tanggal ke waktu lokal
+  const formatDate = (timestamp: number): string => {
+    return new Date(timestamp).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  // Filter & Urutkan daftar gambar
+  const filteredAndSortedArtworks = useMemo(() => {
+    let result = [...artworks];
+
+    // 1. Pencarian nama file
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((a) => a.name.toLowerCase().includes(q));
+    }
+
+    // 2. Filter orientasi
+    if (orientationFilter !== 'all') {
+      result = result.filter((a) => a.orientation === orientationFilter);
+    }
+
+    // 3. Pengurutan
+    result.sort((a, b) => {
+      switch (sortField) {
+        case 'date_desc':
+          return b.importedAt - a.importedAt;
+        case 'date_asc':
+          return a.importedAt - b.importedAt;
+        case 'name_asc':
+          return a.name.localeCompare(b.name);
+        case 'name_desc':
+          return b.name.localeCompare(a.name);
+        case 'resolution_desc':
+          return b.width * b.height - a.width * a.height;
+        case 'resolution_asc':
+          return a.width * a.height - b.width * b.height;
+        case 'size_desc':
+          return b.size - a.size;
+        case 'size_asc':
+          return a.size - b.size;
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [artworks, searchQuery, orientationFilter, sortField]);
+
+  // Manajemen seleksi jamak
+  const toggleSelect = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === filteredAndSortedArtworks.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAndSortedArtworks.map((a) => a.id)));
+    }
+  };
+
+  // Hapus satu gambar
+  const handleDeleteOne = async (id: string) => {
+    await deleteArtwork(id);
+    setDeleteConfirmId(null);
+    if (inspectedArtwork?.id === id) {
+      setInspectedArtwork(null);
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    onRefresh();
+  };
+
+  // Hapus seleksi jamak
+  const handleDeleteBatch = async () => {
+    const ids = Array.from(selectedIds);
+    await deleteMultipleArtworks(ids);
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+    setShowBatchDeleteConfirm(false);
+    onRefresh();
+  };
+
+  // Jalankan pemeriksaan di Engine Forensik VEROIA
+  const handleExamine = (artwork: StoredArtwork) => {
+    const file = new File([artwork.blob], artwork.name, { type: artwork.type });
+    onExamineArtwork(file);
+  };
+
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedHash(true);
+      setTimeout(() => setCopiedHash(false), 2000);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Top Banner / Vault Summary */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 sm:p-6 transition-all">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shadow-2xs">
+                <HardDrive className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  Galeri Karya Full HD VEROIA
+                  <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Penyimpanan Internal Persisten
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-500">
+                  Standar ISO/IEC 27037:2012 — Khusus citra resolusi asli Full HD (≥ 1920×1080 / 1080×1920 / 1440×1440 / Panorama)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Header */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSelectionMode(!isSelectionMode);
+                if (isSelectionMode) setSelectedIds(new Set());
+              }}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                isSelectionMode
+                  ? 'bg-blue-50 text-blue-700 border-blue-300'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {isSelectionMode ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+              <span>{isSelectionMode ? `Pilih (${selectedIds.size})` : 'Mode Seleksi'}</span>
+            </button>
+
+            {isSelectionMode && selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteConfirm(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Hapus ({selectedIds.size})</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onRefresh}
+              title="Perbarui Data Galeri"
+              className="p-2.5 text-slate-500 hover:text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-all cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Stats Pill Bar */}
+        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-3 sm:gap-6 text-xs text-slate-600">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">Total Karya:</span>
+            <span className="font-bold text-slate-800">{artworks.length} gambar</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">Penggunaan Memori Vault:</span>
+            <span className="font-bold text-slate-800">{formatBytes(storageStats?.totalBytes || 0)}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">Status Persistensi:</span>
+            <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
+              Aman di IndexedDB Lokal
+            </span>
+          </div>
+          <div className="ml-auto text-[11px] text-slate-400">
+            Penghapusan tidak mengubah foto asli di perangkat
+          </div>
+        </div>
+      </div>
+
+      {/* Filter, Search & Sort Toolbar */}
+      <div className="bg-white rounded-xl border border-slate-200/80 p-3 sm:p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shadow-2xs">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Cari berdasarkan nama file gambar..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg outline-none transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter Orientasi & Sort */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Orientasi Tabs */}
+          <div className="inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/60 text-xs">
+            {(['all', 'landscape', 'portrait', 'square', 'panorama'] as const).map((orient) => (
+              <button
+                key={orient}
+                type="button"
+                onClick={() => setOrientationFilter(orient)}
+                className={`px-2.5 py-1 rounded-md font-medium capitalize transition-all cursor-pointer ${
+                  orientationFilter === orient
+                    ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {orient === 'all' ? 'Semua' : orient}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="relative inline-flex items-center">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+            <select
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value as SortField)}
+              className="pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="date_desc">Waktu Import (Terbaru)</option>
+              <option value="date_asc">Waktu Import (Terlama)</option>
+              <option value="resolution_desc">Resolusi (Tertinggi)</option>
+              <option value="resolution_asc">Resolusi (Terendah)</option>
+              <option value="name_asc">Nama File (A – Z)</option>
+              <option value="name_desc">Nama File (Z – A)</option>
+              <option value="size_desc">Ukuran (Terbesar)</option>
+              <option value="size_asc">Ukuran (Terkecil)</option>
+            </select>
+          </div>
+
+          {isSelectionMode && (
+            <button
+              type="button"
+              onClick={selectAll}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              {selectedIds.size === filteredAndSortedArtworks.length && filteredAndSortedArtworks.length > 0
+                ? 'Batal Pilih Semua'
+                : 'Pilih Semua'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Import Notification Banner / Modal */}
+      {importResultNotification && (
+        <div className="bg-white border-2 border-blue-200 rounded-2xl p-4 sm:p-5 shadow-md animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <h3 className="text-sm font-bold text-slate-900">
+                Laporan Hasil Import Foto ke Galeri VEROIA
+              </h3>
+            </div>
+            {onDismissNotification && (
+              <button
+                type="button"
+                onClick={onDismissNotification}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs mb-3">
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200/80">
+              <span className="text-emerald-700 font-semibold block">Berhasil Disalin:</span>
+              <span className="text-lg font-bold text-emerald-900">{importResultNotification.imported.length}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200/80">
+              <span className="text-amber-700 font-semibold block">Ditolak (Low-Res):</span>
+              <span className="text-lg font-bold text-amber-900">{importResultNotification.rejectedLowRes.length}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80">
+              <span className="text-blue-700 font-semibold block">Duplikat Terdeteksi:</span>
+              <span className="text-lg font-bold text-blue-900">{importResultNotification.rejectedDuplicate.length}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-red-50 border border-red-200/80">
+              <span className="text-red-700 font-semibold block">Format Tidak Sesuai:</span>
+              <span className="text-lg font-bold text-red-900">{importResultNotification.rejectedFormat.length}</span>
+            </div>
+          </div>
+
+          {/* Rincian Penolakan Jika Ada */}
+          {(importResultNotification.rejectedLowRes.length > 0 ||
+            importResultNotification.rejectedDuplicate.length > 0 ||
+            importResultNotification.rejectedFormat.length > 0 ||
+            importResultNotification.rejectedDecodeError.length > 0) && (
+            <div className="mt-2 text-xs space-y-1.5 max-h-40 overflow-y-auto bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-700 block">Rincian Penolakan:</span>
+              {importResultNotification.rejectedLowRes.map((r, i) => (
+                <div key={`low-${i}`} className="text-amber-800 flex items-start gap-1.5">
+                  <span className="text-amber-600 font-bold">•</span>
+                  <span><strong>{r.name}</strong> ({r.width} × {r.height} px) — {r.reason}</span>
+                </div>
+              ))}
+              {importResultNotification.rejectedDuplicate.map((r, i) => (
+                <div key={`dup-${i}`} className="text-blue-800 flex items-start gap-1.5">
+                  <span className="text-blue-600 font-bold">•</span>
+                  <span><strong>{r.name}</strong> — {r.reason}</span>
+                </div>
+              ))}
+              {importResultNotification.rejectedFormat.map((r, i) => (
+                <div key={`fmt-${i}`} className="text-red-800 flex items-start gap-1.5">
+                  <span className="text-red-600 font-bold">•</span>
+                  <span><strong>{r.name}</strong> ({r.type}) — {r.reason}</span>
+                </div>
+              ))}
+              {importResultNotification.rejectedDecodeError.map((r, i) => (
+                <div key={`dec-${i}`} className="text-slate-800 flex items-start gap-1.5">
+                  <span className="text-slate-600 font-bold">•</span>
+                  <span><strong>{r.name}</strong> — {r.reason}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gallery Grid */}
+      {filteredAndSortedArtworks.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 sm:p-16 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center">
+            <ImageIcon className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-base font-bold text-slate-900">
+              {searchQuery || orientationFilter !== 'all'
+                ? 'Tidak ada gambar yang cocok dengan filter'
+                : 'Galeri Internal VEROIA Masih Kosong'}
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {searchQuery || orientationFilter !== 'all'
+                ? 'Coba ganti kata kunci pencarian atau ubah filter orientasi.'
+                : 'Gunakan tombol MASUKKAN GAMBAR pada bilah navigasi atas untuk memilih dan menambahkan gambar Full HD (≥ 1920×1080) ke penyimpanan internal VEROIA.'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
+          {filteredAndSortedArtworks.map((artwork) => {
+            const isSelected = selectedIds.has(artwork.id);
+            return (
+              <div
+                key={artwork.id}
+                className={`group relative bg-white rounded-2xl border overflow-hidden transition-all duration-200 flex flex-col shadow-xs hover:shadow-md ${
+                  isSelected
+                    ? 'border-blue-500 ring-2 ring-blue-500/20'
+                    : 'border-slate-200/90 hover:border-slate-300'
+                }`}
+              >
+                {/* Thumbnail Container */}
+                <div className="relative aspect-16/10 w-full bg-slate-900 overflow-hidden flex items-center justify-center">
+                  {artwork.thumbnailDataUrl ? (
+                    <img
+                      src={artwork.thumbnailDataUrl}
+                      alt={artwork.name}
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="text-slate-500 text-xs flex flex-col items-center gap-1">
+                      <ImageIcon className="w-6 h-6" />
+                      <span>{artwork.width} × {artwork.height}</span>
+                    </div>
+                  )}
+
+                  {/* Gradient Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-80" />
+
+                  {/* Selection Checkbox (Top-Left) */}
+                  <div className="absolute top-2.5 left-2.5 z-10">
+                    <button
+                      type="button"
+                      onClick={(e) => toggleSelect(artwork.id, e)}
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-black/40 text-white hover:bg-black/60 backdrop-blur-xs'
+                      }`}
+                      title={isSelected ? 'Batalkan pilihan' : 'Pilih gambar'}
+                    >
+                      {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Resolution Badge (Top-Right) */}
+                  <div className="absolute top-2.5 right-2.5 z-10">
+                    <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase rounded-md bg-black/60 text-white backdrop-blur-xs border border-white/10 shadow-2xs">
+                      {artwork.resolutionLabel}
+                    </span>
+                  </div>
+
+                  {/* Hover Quick Action Buttons */}
+                  <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 z-10 p-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExamine(artwork)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                      title="Periksa citra ini di Engine Forensik VEROIA"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Periksa</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInspectedArtwork(artwork)}
+                      className="p-2 text-white bg-slate-800/90 hover:bg-slate-700 rounded-xl shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                      title="Detail Informasi Teknis"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmId(artwork.id)}
+                      className="p-2 text-red-200 bg-red-950/80 hover:bg-red-800 rounded-xl shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                      title="Hapus salinan dari VEROIA"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Bottom info banner on thumbnail */}
+                  <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between text-[11px] text-white/90 font-medium">
+                    <span className="truncate max-w-[65%]">{artwork.width} × {artwork.height} px</span>
+                    <span>{formatBytes(artwork.size)}</span>
+                  </div>
+                </div>
+
+                {/* Card Meta Content */}
+                <div className="p-3.5 flex flex-col flex-1 justify-between gap-3">
+                  <div>
+                    <h4
+                      className="text-xs font-bold text-slate-800 truncate"
+                      title={artwork.name}
+                    >
+                      {artwork.name}
+                    </h4>
+                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500">
+                      <span className="capitalize px-1.5 py-0.5 rounded-sm bg-slate-100 font-medium text-slate-600">
+                        {artwork.orientation}
+                      </span>
+                      <span>{artwork.type.replace('image/', '').toUpperCase()}</span>
+                      <span className="ml-auto text-[10px] text-slate-400">
+                        {new Date(artwork.importedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Bottom Actions */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExamine(artwork)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Uji Forensik</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInspectedArtwork(artwork)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                      title="Detail Informasi"
+                    >
+                      <Info className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal Detail / Inspeksi Gambar */}
+      {inspectedArtwork && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-150">
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-auto overflow-hidden">
+            <div className="flex items-center justify-between p-4 bg-slate-900 text-white">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-bold truncate max-w-sm">
+                  {inspectedArtwork.name}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectedArtwork(null)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-4">
+              {/* Preview Box */}
+              <div className="w-full h-56 sm:h-72 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center relative">
+                {inspectedArtwork.thumbnailDataUrl ? (
+                  <img
+                    src={inspectedArtwork.thumbnailDataUrl}
+                    alt={inspectedArtwork.name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <ImageIcon className="w-12 h-12 text-slate-600" />
+                )}
+                <div className="absolute top-3 right-3">
+                  <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-black/70 text-white backdrop-blur-xs">
+                    {inspectedArtwork.resolutionLabel}
+                  </span>
+                </div>
+              </div>
+
+              {/* Technical Metadata Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-slate-400 font-medium block">Dimensi Spasial:</span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 block">
+                    {inspectedArtwork.width} × {inspectedArtwork.height} px
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-slate-400 font-medium block">Orientasi Rasio:</span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 capitalize block">
+                    {inspectedArtwork.orientation} ({(inspectedArtwork.width / inspectedArtwork.height).toFixed(2)})
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-slate-400 font-medium block">Ukuran File:</span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 block">
+                    {formatBytes(inspectedArtwork.size)}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-slate-400 font-medium block">Format MIME:</span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 block">
+                    {inspectedArtwork.type}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 col-span-2">
+                  <span className="text-slate-400 font-medium block">Tanggal Disalin ke VEROIA:</span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 block">
+                    {formatDate(inspectedArtwork.importedAt)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Cryptographic SHA-256 */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500 font-medium">Hash Kriptografis SHA-256 (Anti-Duplikasi):</span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(inspectedArtwork.sha256)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{copiedHash ? 'Disalin!' : 'Salin Hash'}</span>
+                  </button>
+                </div>
+                <code className="text-[11px] font-mono text-slate-700 break-all block bg-white p-2 rounded-lg border border-slate-200">
+                  {inspectedArtwork.sha256}
+                </code>
+              </div>
+
+              {/* Action Buttons in Modal */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteConfirmId(inspectedArtwork.id);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Hapus dari Galeri</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleExamine(inspectedArtwork);
+                    setInspectedArtwork(null);
+                  }}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Jalankan Pengujian Forensik VEROIA</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Konfirmasi Hapus Tunggal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-2xs flex items-center justify-center p-4 animate-in fade-in duration-100">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-slate-200">
+            <div className="w-12 h-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="text-base font-bold text-slate-900">
+                Hapus Salinan Gambar?
+              </h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Salinan gambar ini akan dihapus dari penyimpanan internal VEROIA. File foto asli di galeri atau folder perangkat Anda tidak akan terpengaruh.
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteOne(deleteConfirmId)}
+                className="flex-1 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Konfirmasi Hapus Massal */}
+      {showBatchDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-2xs flex items-center justify-center p-4 animate-in fade-in duration-100">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-slate-200">
+            <div className="w-12 h-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="text-base font-bold text-slate-900">
+                Hapus {selectedIds.size} Gambar Terpilih?
+              </h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Semua salinan gambar yang dipilih akan dihapus dari penyimpanan internal VEROIA. Foto asli pada perangkat Anda tetap aman dan tidak akan terhapus.
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteConfirm(false)}
+                className="flex-1 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteBatch}
+                className="flex-1 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Hapus {selectedIds.size} File
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

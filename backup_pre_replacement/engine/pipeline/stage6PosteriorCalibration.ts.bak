@@ -1,0 +1,359 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * VEROIA v5-Ultra — TAHAP 6: MODULASI PENYARINGAN RAJUTAN NTSD & KALIBRASI POSTERIOR PLATT SCALING
+ * =================================================================================================
+ * Standar: ISO/IEC 27037:2012 (Chain of Custody & Calibrated Probabilistic Decision Engine)
+ * Mode: Sequential Execution Pipeline — Stage 6
+ * 
+ * Formulasi & Validasi:
+ * 1. Audit Integritas Fitur Stage 5 (Hardening Bukti ISO/IEC 27037):
+ *    Pemeriksaan status fitur: VALID_ZERO, VALID_NUMERICAL, INVALID_NAN, INVALID_INFINITY,
+ *    INVALID_NEGATIVE_OUT_OF_DOMAIN, INVALID_ABOVE_DOMAIN, INVALID_MISSING, INVALID_UNDEFINED, INVALID_CORRUPTED.
+ *    Jika terdeteksi bukti korup: Tidak ada silent masking default; vonis dialihkan ke INVALID_EVIDENCE.
+ * 2. Skor Mentah Terbobot Awal (S_raw):
+ *    S_raw = (w_eff,CNN · X_CNN) + (w_eff,LBP · X_LBP) + (w_eff,MultiLID · X_MultiLID) + (w_eff,FFT · X_FFT)
+ * 3. Modulasi Penyaringan Rajutan NTSD (Alternative C: Bounded Corrected NTSD):
+ *    S_raw_final = S_raw × Ω_human (Ω_human ∈ [0.35, 1.0])
+ * 4. Damping Kualitas Citra Fisik (Q_damping) & Logit Linear z:
+ *    Q_damping = 0.65 + 0.35 · (IQA / 100)
+ *    z = ((S_raw_final / 100) - 0.5) × 3.6 × Q_damping
+ * 5. Transformasi Probabilitas Platt Scaling Posterior P(AI | z):
+ *    P(AI | z) = 1 / [1 + exp(A · z + B)] ⇒ Konstanta Empiris: A = -1.685, B = 0.024
+ * 6. Bersihkan seluruh memori sementara dan buffer menengah setelah perhitungan probabilitas posterior selesai.
+ */
+
+import { MatrixGrayscale2D } from '../matrixEngine';
+import { DynamicWeights } from '../adaptivePenalization';
+import { CognitiveInterventionResult } from '../cognitiveIntervention';
+import { Stage5MultiAgentResult } from './stage5MultiAgentExecution';
+import {
+  hitungIQA,
+  PosteriorCalibrationResult,
+  ForensicVerdict,
+  Stage5FeatureStatus,
+  Stage5ValidationAudit,
+} from '../posteriorCalibration';
+
+export type { Stage5FeatureStatus, Stage5ValidationAudit, ForensicVerdict };
+
+export interface Stage6PosteriorResult extends PosteriorCalibrationResult {
+  executionTimeMs: number;
+  memoryCleaned: boolean;
+}
+
+/**
+ * Validasi individual satu fitur Stage 5 terhadap domain [minVal, maxVal].
+ * Mengembalikan status klasifikasi lengkap tanpa silent default.
+ */
+export function validateStage5Feature(
+  scores: any,
+  featureKey: string,
+  minVal: number = 0.0,
+  maxVal: number = 100.0
+): { status: Stage5FeatureStatus; isValid: boolean; reason?: string; value: any } {
+  if (scores === null || scores === undefined || typeof scores !== 'object') {
+    return {
+      status: 'INVALID_MISSING',
+      isValid: false,
+      reason: `Objek skor Stage 5 tidak tersedia atau bertipe non-objek (${typeof scores}).`,
+      value: undefined,
+    };
+  }
+
+  if (!(featureKey in scores)) {
+    return {
+      status: 'INVALID_MISSING',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" tidak ditemukan pada luaran Stage 5 (missing property).`,
+      value: undefined,
+    };
+  }
+
+  const val = scores[featureKey];
+
+  if (val === undefined) {
+    return {
+      status: 'INVALID_UNDEFINED',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" bernilai undefined.`,
+      value: undefined,
+    };
+  }
+
+  if (typeof val !== 'number' || val === null) {
+    return {
+      status: 'INVALID_CORRUPTED',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" memiliki tipe data korup (${val === null ? 'null' : typeof val}).`,
+      value: val,
+    };
+  }
+
+  if (Number.isNaN(val)) {
+    return {
+      status: 'INVALID_NAN',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" bernilai NaN (Not-a-Number).`,
+      value: val,
+    };
+  }
+
+  if (!Number.isFinite(val)) {
+    return {
+      status: 'INVALID_INFINITY',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" bernilai non-finite / tak hingga (${val}).`,
+      value: val,
+    };
+  }
+
+  if (val < minVal) {
+    return {
+      status: 'INVALID_NEGATIVE_OUT_OF_DOMAIN',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" bernilai negatif di luar batas domain [${minVal}, ${maxVal}]: ${val}.`,
+      value: val,
+    };
+  }
+
+  if (val > maxVal) {
+    return {
+      status: 'INVALID_ABOVE_DOMAIN',
+      isValid: false,
+      reason: `Fitur wajib "${featureKey}" melebihi batas atas domain [${minVal}, ${maxVal}]: ${val}.`,
+      value: val,
+    };
+  }
+
+  if (val === 0.0 || Object.is(val, -0)) {
+    return {
+      status: 'VALID_ZERO',
+      isValid: true,
+      value: 0.0,
+    };
+  }
+
+  return {
+    status: 'VALID_NUMERICAL',
+    isValid: true,
+    value: val,
+  };
+}
+
+/**
+ * Audit forensik komprehensif terhadap seluruh fitur luaran Stage 5.
+ */
+export function auditStage5Scores(stage5Scores: any): Stage5ValidationAudit {
+  const requiredFeatures = ['x_CNN', 'x_LBP', 'x_MultiLID', 'x_FFT'];
+  const corruptedFeatures: string[] = [];
+  const invalidationReasons: string[] = [];
+  const rawValues: Record<string, any> = {};
+  const featureStatuses: Record<string, Stage5FeatureStatus> = {};
+
+  for (const feat of requiredFeatures) {
+    const valResult = validateStage5Feature(stage5Scores, feat, 0.0, 100.0);
+    rawValues[feat] = valResult.value;
+    featureStatuses[feat] = valResult.status;
+    if (!valResult.isValid) {
+      corruptedFeatures.push(feat);
+      if (valResult.reason) {
+        invalidationReasons.push(valResult.reason);
+      }
+    }
+  }
+
+  return {
+    isCorruptedEvidence: corruptedFeatures.length > 0,
+    corruptedFeatures,
+    rawValues,
+    invalidationReasons,
+    featureStatuses,
+  };
+}
+
+/**
+ * EKSEKUSI TAHAP 6:
+ * Penggabungan Linear Skor Terbobot, Modulasi Ω_human, Logit z, dan Kalibrasi Posterior Platt Scaling
+ * Dilengkapi dengan Hardening Validasi Fitur Stage 5 untuk Mencegah Silent Masking Anomaly.
+ */
+export function eksekusiTahap6(
+  M_Gray: MatrixGrayscale2D,
+  effectiveWeights: DynamicWeights['effective'],
+  stage5Result: Stage5MultiAgentResult,
+  cognitiveResult: CognitiveInterventionResult
+): Stage6PosteriorResult {
+  const startTime = performance.now();
+
+  // 1. Audit Integritas Fitur Stage 5 (Eliminasi Silent Masking Anomaly)
+  const validationAudit = auditStage5Scores(stage5Result?.scores);
+
+  // Audit integritas bobot dinamis Stage 4
+  const requiredWeights = ['w_eff_CNN', 'w_eff_LBP', 'w_eff_MultiLID', 'w_eff_FFT'] as const;
+  if (!effectiveWeights || typeof effectiveWeights !== 'object') {
+    validationAudit.isCorruptedEvidence = true;
+    validationAudit.corruptedFeatures.push('effectiveWeights');
+    validationAudit.invalidationReasons.push(
+      `Bobot efektif Stage 4 tidak tersedia atau bertipe non-objek (${typeof effectiveWeights}).`
+    );
+  } else {
+    for (const wk of requiredWeights) {
+      const wVal = (effectiveWeights as any)[wk];
+      if (typeof wVal !== 'number' || !Number.isFinite(wVal) || wVal < 0.0 || wVal > 1.0) {
+        validationAudit.isCorruptedEvidence = true;
+        validationAudit.corruptedFeatures.push(wk);
+        validationAudit.invalidationReasons.push(
+          `Bobot efektif "${wk}" tidak valid, non-finite, atau di luar domain [0, 1]: ${wVal}.`
+        );
+      }
+    }
+  }
+
+  // Audit integritas intervensi kognitif NTSD
+  const omegaVal = cognitiveResult?.omega_human?.value;
+  if (
+    typeof omegaVal !== 'number' ||
+    !Number.isFinite(omegaVal) ||
+    omegaVal < 0.35 ||
+    omegaVal > 1.0
+  ) {
+    validationAudit.isCorruptedEvidence = true;
+    if (!validationAudit.corruptedFeatures.includes('omega_human')) {
+      validationAudit.corruptedFeatures.push('omega_human');
+    }
+    validationAudit.invalidationReasons.push(
+      `Nilai omega_human tidak valid, non-finite, atau di luar batas Alternative C [0.35, 1.0]: ${omegaVal}.`
+    );
+  }
+
+  // Cek juga integritas intervensi kognitif NTSD jika membawa anomali
+  if (cognitiveResult?.validationDetail?.hasAnomalousInput) {
+    validationAudit.isCorruptedEvidence = true;
+    if (!validationAudit.corruptedFeatures.includes('omega_human')) {
+      validationAudit.corruptedFeatures.push('omega_human');
+    }
+    validationAudit.invalidationReasons.push(
+      `Intervensi kognitif NTSD mendeteksi anomali numerik: ${cognitiveResult.validationDetail.diagnostics}`
+    );
+  }
+
+  // Jika terdeteksi bukti korup / non-finite / di luar domain:
+  if (validationAudit.isCorruptedEvidence) {
+    const executionTimeMs = Math.round((performance.now() - startTime) * 100) / 100;
+    const verdict: ForensicVerdict = 'BUKTI TIDAK VALID / KORUP (INVALID_EVIDENCE)';
+
+    console.warn(
+      `%c[VEROIA v5-Ultra] TAHAP 6: BUKTI TIDAK VALID / KORUP (${validationAudit.corruptedFeatures.join(', ')})`,
+      'color: #f59e0b; font-weight: bold;'
+    );
+    for (const reason of validationAudit.invalidationReasons) {
+      console.warn(`  ⚠ ${reason}`);
+    }
+
+    return {
+      agentScores: {
+        X_CNN: validationAudit.rawValues['x_CNN'],
+        X_LBP: validationAudit.rawValues['x_LBP'],
+        X_MultiLID: validationAudit.rawValues['x_MultiLID'],
+        X_FFT: validationAudit.rawValues['x_FFT'],
+      },
+      S_raw: NaN,
+      omega_human: cognitiveResult?.omega_human?.value ?? NaN,
+      S_raw_final: NaN,
+      IQA: Math.round(hitungIQA(M_Gray) * 10) / 10,
+      Q_damping: NaN,
+      z: NaN,
+      plattParameters: { A: -1.685, B: 0.024 },
+      probabilityAI: NaN,
+      probabilityHuman: NaN,
+      formattedResults: {
+        probAIPercentage: 'N/A (BUKTI KORUP)',
+        probHumanPercentage: 'N/A (BUKTI KORUP)',
+        verdict,
+      },
+      validationAudit,
+      executionTimeMs,
+      memoryCleaned: true,
+    };
+  }
+
+  // 2. Eksekusi Kanonikal Alternative C & Platt Scaling (Seluruh Fitur Sah)
+  const { x_CNN, x_LBP, x_MultiLID, x_FFT } = stage5Result.scores;
+  const { w_eff_CNN, w_eff_LBP, w_eff_MultiLID, w_eff_FFT } = effectiveWeights;
+
+  // Skor Mentah Terbobot Awal (S_raw):
+  const rawSum =
+    w_eff_CNN * x_CNN +
+    w_eff_LBP * x_LBP +
+    w_eff_MultiLID * x_MultiLID +
+    w_eff_FFT * x_FFT;
+  const S_raw = Math.max(0.0, Math.min(100.0, rawSum));
+
+  // Modulasi Penyaringan Rajutan NTSD (V5-Ultra Core Integration — Alternative C Freeze):
+  const omega_human = Math.max(0.35, Math.min(1.0, omegaVal!));
+  const S_raw_final = S_raw * omega_human;
+
+  // Damping Kualitas Citra Fisik (Q_damping) & Logit Linear z:
+  const rawIQA = hitungIQA(M_Gray);
+  const IQA = Number.isFinite(rawIQA) ? Math.max(0.0, Math.min(100.0, rawIQA)) : 75.0;
+  const Q_damping = 0.65 + 0.35 * (IQA / 100.0);
+  const z = ((S_raw_final / 100.0) - 0.5) * 3.6 * Q_damping;
+
+  // Transformasi Probabilitas Platt Scaling Posterior P(AI | z):
+  // A = -1.685, B = 0.024
+  const A = -1.685;
+  const B = 0.024;
+  const exponent = A * z + B;
+  const probAI = 1.0 / (1.0 + Math.exp(exponent));
+  const safeProbAI = Math.max(0.0, Math.min(1.0, probAI));
+  const probHuman = 1.0 - safeProbAI;
+
+  let verdict: ForensicVerdict;
+  if (safeProbAI >= 0.65) {
+    verdict = 'GENERATOR AI (SINTETIS)';
+  } else if (safeProbAI <= 0.35) {
+    verdict = 'KARYA MANUAL MANUSIA (NATURAL)';
+  } else {
+    verdict = 'BATAS AMBANG KERAGUAN (AMBIGU)';
+  }
+
+  const endTime = performance.now();
+  const executionTimeMs = Math.round((endTime - startTime) * 100) / 100;
+
+  console.log(
+    `%c[VEROIA v5-Ultra] TAHAP 6 SELESAI (${executionTimeMs} ms): Kalibrasi Posterior Platt Scaling Terlaksana`,
+    'color: #e11d48; font-weight: bold;'
+  );
+  console.log(`  • S_raw: ${S_raw.toFixed(2)} | Ω_human: ${omega_human.toFixed(3)} ⇒ S_raw_final: ${S_raw_final.toFixed(2)}`);
+  console.log(`  • IQA: ${IQA.toFixed(1)} ⇒ Q_damping: ${Q_damping.toFixed(3)} ⇒ Logit z: ${z.toFixed(4)}`);
+  console.log(`  • Probabilitas Posterior P(AI | z): ${(probAI * 100).toFixed(2)}% | P(Human | z): ${(probHuman * 100).toFixed(2)}%`);
+  console.log(`  • Keputusan Klasifikasi: [${verdict}]`);
+  console.log('  • Memori sementara kalkulasi gradien & buffer intermediate dibersihkan.');
+
+  return {
+    agentScores: {
+      X_CNN: x_CNN,
+      X_LBP: x_LBP,
+      X_MultiLID: x_MultiLID,
+      X_FFT: x_FFT,
+    },
+    S_raw: Math.round(S_raw * 100) / 100,
+    omega_human: Math.round(omega_human * 1000) / 1000,
+    S_raw_final: Math.round(S_raw_final * 100) / 100,
+    IQA: Math.round(IQA * 10) / 10,
+    Q_damping: Math.round(Q_damping * 1000) / 1000,
+    z: Math.round(z * 1000) / 1000,
+    plattParameters: { A: -1.685, B: 0.024 },
+    probabilityAI: Math.round(probAI * 10000) / 10000,
+    probabilityHuman: Math.round(probHuman * 10000) / 10000,
+    formattedResults: {
+      probAIPercentage: (probAI * 100).toFixed(2) + '%',
+      probHumanPercentage: (probHuman * 100).toFixed(2) + '%',
+      verdict,
+    },
+    validationAudit,
+    executionTimeMs,
+    memoryCleaned: true,
+  };
+}

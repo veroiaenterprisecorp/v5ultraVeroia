@@ -1,0 +1,77 @@
+{
+  "system": "VEROIA v5-Ultra",
+  "component": "STAGE 6 (NTSD & POSTERIOR CALIBRATION)",
+  "freeze_status": "OFFICIALLY FROZEN",
+  "freeze_timestamp": "2026-11-01T05:10:35-08:00",
+  "authorization": "USER AUTHORIZED",
+  "system_state": {
+    "stage_1_to_4": "FROZEN & PROTECTED",
+    "stage_5": "FROZEN & PROTECTED (VERIFIED SHA-256)",
+    "alternative_c": "FROZEN & PRESERVED (omega_human in [0.35, 1.0])",
+    "stage_6": "OFFICIALLY FROZEN",
+    "stage_7": "STRICTLY LOCKED (NOT EXECUTED)"
+  },
+  "frozen_files": [
+    {
+      "source_path": "src/engine/pipeline/stage6NTSD.ts",
+      "snapshot_path": "freeze_stage6/stage6NTSD.ts.frozen",
+      "sha256": "d335f54bbb366850004b06d26c436b58566446132d39ba198c3f8e4a2c16c83b",
+      "role": "Canonical 2D FFT Radix-2 Cooley-Tukey NTSD spectral engine with 2D Hann windowing, zero-mean DC removal, 1/f^alpha radial baseline fitting, and self-contained types"
+    },
+    {
+      "source_path": "src/engine/cognitiveIntervention.ts",
+      "snapshot_path": "freeze_stage6/cognitiveIntervention.ts.frozen",
+      "sha256": "1a3c5e7cf22cbb29ba1b990cd724abce9c55a95418229a602d49609295abb926",
+      "role": "Unified re-export / backward-compatibility wrapper pointing directly to stage6NTSD.ts"
+    },
+    {
+      "source_path": "src/engine/matrixEngine.ts",
+      "snapshot_path": "freeze_stage6/matrixEngine.ts.frozen",
+      "sha256": "ddc07b6a2f7300661f9d7f018bf23d705ca7526e727b7789c3011ba15db96092",
+      "role": "Pipeline orchestrator invoking eksekusiTahap6NTSD directly from stage6NTSD.ts"
+    },
+    {
+      "source_path": "src/engine/pipeline/stage6PosteriorCalibration.ts",
+      "snapshot_path": "freeze_stage6/stage6PosteriorCalibration.ts.frozen",
+      "sha256": "35391bb20795df06df561778493f888ddcf465f42318cd9a7f6e4e9c7fb09f97",
+      "role": "Posterior calibration with strict Stage 4 effective weight and omega_human validation, zero silent fallbacks"
+    },
+    {
+      "source_path": "src/test/micro_repair_06_test.ts",
+      "snapshot_path": "freeze_stage6/micro_repair_06_test.ts.frozen",
+      "sha256": "4c4e1a97758e8b02cc07db36b568b199e0f19ba71996f0995d393bcdb8e9716c",
+      "role": "Stage 6 test suite containing 41/41 passing rigorous validation assertions"
+    }
+  ],
+  "protected_baselines": {
+    "stage_5_frozen_hashes": {
+      "src/engine/multiLID.ts": "a64466747185c72d02764a7aa17531f48ddeab73e181df8348aaea70b8ca368c",
+      "src/engine/pipeline/stage5MultiAgentExecution.ts": "68f4f62a30212edf79a34947208482d6da504a5ac539d373bd1dca7366b31dde",
+      "src/engine/pipeline/stage3PatchPartition.ts": "9a113e8fddc407be5f000d6346e3e97a4f349fa9d711fa15cd435d7bd14b4b23"
+    },
+    "stage_7_locked_hash": {
+      "src/engine/pipeline/stage7DecisionReport.ts": "924ed7b32125789db9a72e4eb441190158b0846bcb61acc3117662d6c421c624"
+    }
+  ],
+  "auxiliary_dependencies": {
+    "src/engine/adaptivePenalization.ts": "3cff7213d5024cf0270f3e35a01684ef8e372705491f7789ad852ba0f726af8e",
+    "src/engine/posteriorCalibration.ts": "b1cf62735aa1f54a0e49c073df77f8c1f3023d32a62a68d65233e942e361d206"
+  },
+  "calibration_parameters": {
+    "platt_A": -1.685,
+    "platt_B": 0.024,
+    "status": "PRESERVED",
+    "empirical_metrics": {
+      "brier_score": "NOT VERIFIED (No labeled ground-truth dataset)",
+      "expected_calibration_error_ece": "NOT VERIFIED (No labeled ground-truth dataset)",
+      "log_loss": "NOT VERIFIED (No labeled ground-truth dataset)"
+    }
+  },
+  "validation_metrics": {
+    "unit_tests": "41/41 PASS (src/test/micro_repair_06_test.ts)",
+    "regression_tests": "PASS (micro_repair_05_5, 05_7, 05_9, 05_2, 03_1, 04_1, 05_11, 05_14)",
+    "typescript_typecheck": "PASS (exit code 0)",
+    "linter": "PASS (exit code 0)",
+    "build": "PASS (Vite production build clean)"
+  }
+}
