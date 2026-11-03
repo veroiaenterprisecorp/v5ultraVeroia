@@ -1,0 +1,45 @@
+name: VEROIA v5-Ultra Cloud CI/CD
+
+on:
+  push:
+    branches:
+      - cloud-deployment
+  pull_request:
+    branches:
+      - cloud-deployment
+
+jobs:
+  forensic-audit-and-build:
+    name: Forensic Pipeline Audit & Cloud Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Contract Validation (Strict Lint)
+        run: npm run lint
+
+      - name: Stage 5 Hybrid FFT & Multi-Agent Regression Test
+        run: npm run test:stage5
+
+      - name: Forensic Realism & Acceptance Validation
+        run: npm run test:realism
+
+      - name: Cloud Full HD 1920x1080 Pipeline & Server Benchmark
+        run: npm run test:cloud
+
+      - name: Build Production Frontend Assets
+        run: npm run build
+
+      - name: Verify Docker Container Build
+        run: docker build -t veroia-v5-ultra-cloud:${{ github.sha }} .

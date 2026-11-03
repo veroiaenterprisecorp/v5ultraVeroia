@@ -242,6 +242,14 @@ export function eksekusiTahap6(
     );
   }
 
+  // IQA adalah faktor perhitungan; nilai non-finite tidak boleh diganti skor default.
+  const rawIQA = hitungIQA(M_Gray);
+  if (!Number.isFinite(rawIQA)) {
+    validationAudit.isCorruptedEvidence = true;
+    validationAudit.corruptedFeatures.push('IQA');
+    validationAudit.invalidationReasons.push(`IQA tidak dapat dihitung secara finite: ${rawIQA}.`);
+  }
+
   // Cek juga integritas intervensi kognitif NTSD jika membawa anomali
   if (cognitiveResult?.validationDetail?.hasAnomalousInput) {
     validationAudit.isCorruptedEvidence = true;
@@ -342,8 +350,7 @@ export function eksekusiTahap6(
   const S_raw_final = S_raw * omega_human;
 
   // Damping Kualitas Citra Fisik (Q_damping) & Logit Linear z:
-  const rawIQA = hitungIQA(M_Gray);
-  const IQA = Number.isFinite(rawIQA) ? Math.max(0.0, Math.min(100.0, rawIQA)) : 75.0;
+  const IQA = Math.max(0.0, Math.min(100.0, rawIQA));
   const Q_damping = 0.65 + 0.35 * (IQA / 100.0);
   const z = ((S_raw_final / 100.0) - 0.5) * 3.6 * Q_damping;
 

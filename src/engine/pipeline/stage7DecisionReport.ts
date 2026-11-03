@@ -397,7 +397,7 @@ export function eksekusiTahap7(
   let z: number = NaN;
   let probAI: number = NaN;
   let probHuman: number = NaN;
-  let h_markov = 2.45;
+  let h_markov = NaN;
   let isCorrupted = false;
   const invalidationReasons: string[] = [];
 
@@ -420,7 +420,11 @@ export function eksekusiTahap7(
 
   if (isPosteriorInput) {
     const stage6 = paramA as (Stage6PosteriorResult | PosteriorCalibrationResult);
-    h_markov = typeof paramB === 'number' && Number.isFinite(paramB) ? paramB : 2.45;
+    h_markov = typeof paramB === 'number' && Number.isFinite(paramB) && paramB >= 0 ? paramB : NaN;
+    if (!Number.isFinite(h_markov)) {
+      isCorrupted = true;
+      invalidationReasons.push('Entropi Markov Stage 5 tidak tersedia atau non-finite; nilai default tidak boleh disisipkan.');
+    }
 
     // Verifikasi audit integritas Stage 6
     if (
@@ -527,8 +531,24 @@ export function eksekusiTahap7(
         X_MultiLID: x_MultiLID,
         X_FFT: x_FFT,
       };
-      h_markov = stage5.markovJitterAnalysis?.h_markov ?? 2.45;
+      const measuredMarkovEntropy = stage5.markovJitterAnalysis?.h_markov;
+      if (typeof measuredMarkovEntropy !== 'number' || !Number.isFinite(measuredMarkovEntropy) || measuredMarkovEntropy < 0) {
+        isCorrupted = true;
+        invalidationReasons.push('Entropi Markov Stage 5 tidak tersedia atau non-finite; nilai default tidak boleh disisipkan.');
+      } else {
+        h_markov = measuredMarkovEntropy;
+      }
 
+      if (isCorrupted) {
+        S_raw = NaN;
+        omega_human = NaN;
+        S_raw_final = NaN;
+        IQA = NaN;
+        Q_damping = NaN;
+        z = NaN;
+        probAI = NaN;
+        probHuman = NaN;
+      } else {
       // Single calculation untuk pemanggil terurai
       S_raw =
         effectiveWeights.w_eff_CNN * x_CNN +
@@ -545,6 +565,7 @@ export function eksekusiTahap7(
       const B = 0.024;
       probAI = 1.0 / (1.0 + Math.exp(A * z + B));
       probHuman = 1.0 - probAI;
+      }
     }
   }
 

@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.github
+*.log
+*.zip
+*.bak
+.env
+.env.local
+.aistudio
+public/assets/aistudio/*.zip

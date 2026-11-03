@@ -50,6 +50,11 @@ export interface CoordinatorOptions {
     img: HTMLImageElement,
     stage1Gates?: AbsoluteGates
   ) => MathematicalEngineResult | null;
+  runCloudAnalysis?: (file: File) => Promise<{
+    stage1Result: Stage1ValidationResult;
+    forensicResult: MathematicalEngineResult;
+    telemetry?: any;
+  }>;
 }
 
 export class ImageProcessCoordinator {
@@ -181,6 +186,68 @@ export class ImageProcessCoordinator {
 
     // Daftarkan sebagai pembersih in-flight
     this.inFlightCleanup = revokeSelf;
+
+    // Jika mode Cloud Backend aktif: alihkan eksekusi Stage 1–7 ke server cloud
+    if (this.options.runCloudAnalysis) {
+      (async () => {
+        try {
+          const cloudRes = await this.options.runCloudAnalysis!(file);
+          if (!this.isLatest(currentRequestId)) {
+            revokeSelf();
+            return;
+          }
+
+          if (this.inFlightCleanup === revokeSelf) {
+            this.inFlightCleanup = null;
+          }
+          this.activePreviewUrl = objectUrl;
+
+          // Sinkronisasi window objek
+          if (this.options.onWindowSync) {
+            this.options.onWindowSync({
+              tahap1Result: cloudRes.stage1Result,
+              G: cloudRes.stage1Result.G,
+            });
+          } else if (typeof window !== 'undefined') {
+            const w = window as unknown as { tahap1Result?: typeof cloudRes.stage1Result; G?: number };
+            w.tahap1Result = cloudRes.stage1Result;
+            w.G = cloudRes.stage1Result.G;
+          }
+
+          const info: ImageValidationInfo = {
+            file,
+            width: cloudRes.forensicResult.metadata.width,
+            height: cloudRes.forensicResult.metadata.height,
+            previewUrl: objectUrl,
+          };
+
+          this.updateState({
+            successInfo: info,
+            forensicResult: cloudRes.forensicResult,
+            errorMsg: null,
+            isValidating: false,
+          });
+        } catch (cloudErr) {
+          revokeSelf();
+          if (this.inFlightCleanup === revokeSelf) {
+            this.inFlightCleanup = null;
+          }
+
+          if (!this.isLatest(currentRequestId)) {
+            return;
+          }
+
+          this.updateState({
+            successInfo: null,
+            forensicResult: null,
+            errorMsg: cloudErr instanceof Error ? cloudErr.message : String(cloudErr),
+            isValidating: false,
+          });
+          if (this.options.onClearInput) this.options.onClearInput();
+        }
+      })();
+      return;
+    }
 
     const img = this.options.createImage ? this.options.createImage() : new Image();
 
